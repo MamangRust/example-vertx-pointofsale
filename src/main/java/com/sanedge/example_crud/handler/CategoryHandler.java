@@ -23,7 +23,6 @@ import lombok.RequiredArgsConstructor;
 public class CategoryHandler {
     private final CategoryService service;
 
-
     public void findAll(RoutingContext ctx) {
         FindAllCategory req = mapFindAll(ctx);
         service.getCategories(req)
@@ -54,6 +53,10 @@ public class CategoryHandler {
 
     public void create(RoutingContext ctx) {
         JsonObject body = ctx.body().asJsonObject();
+        if (body == null) {
+            sendErrorResponse(ctx, new com.sanedge.example_crud.exception.BadRequestException("Request body cannot be empty"));
+            return;
+        }
         CreateCategoryRequest req = body.mapTo(CreateCategoryRequest.class);
         service.createCategory(req)
                 .onSuccess(res -> sendResponse(ctx, res))
@@ -63,9 +66,13 @@ public class CategoryHandler {
     public void update(RoutingContext ctx) {
         Long id = Long.parseLong(ctx.pathParam("id"));
         JsonObject body = ctx.body().asJsonObject();
+        if (body == null) {
+            sendErrorResponse(ctx, new com.sanedge.example_crud.exception.BadRequestException("Request body cannot be empty"));
+            return;
+        }
         UpdateCategoryRequest req = body.mapTo(UpdateCategoryRequest.class);
         req.setCategoryId(id.intValue());
-        
+
         service.updateCategory(req)
                 .onSuccess(res -> sendResponse(ctx, res))
                 .onFailure(err -> sendErrorResponse(ctx, err));
@@ -93,13 +100,13 @@ public class CategoryHandler {
     }
 
     public void restoreAll(RoutingContext ctx) {
-        service.restoreAllCategories(ctx)
+        service.restoreAllCategories()
                 .onSuccess(res -> sendResponse(ctx, res))
                 .onFailure(err -> sendErrorResponse(ctx, err));
     }
 
     public void deleteAllPermanent(RoutingContext ctx) {
-        service.deleteAllPermanentCategories(ctx)
+        service.deleteAllPermanentCategories()
                 .onSuccess(res -> sendResponse(ctx, res))
                 .onFailure(err -> sendErrorResponse(ctx, err));
     }
@@ -108,7 +115,7 @@ public class CategoryHandler {
         MonthTotalPrice req = new MonthTotalPrice();
         req.setYear(getQueryParamInt(ctx, "year", 2024));
         req.setMonth(getQueryParamInt(ctx, "month", 1));
-        
+
         service.getMonthlyTotalPrice(req)
                 .onSuccess(res -> sendResponse(ctx, res))
                 .onFailure(err -> sendErrorResponse(ctx, err));
@@ -205,7 +212,7 @@ public class CategoryHandler {
 
     public void getMonthlyCategoryById(RoutingContext ctx) {
         Long categoryId = Long.parseLong(ctx.pathParam("id"));
-        YearPriceId req = new YearPriceId(); 
+        YearPriceId req = new YearPriceId();
         req.setCategoryId(categoryId.intValue());
         req.setYear(getQueryParamInt(ctx, "year", 2024));
 
@@ -224,7 +231,6 @@ public class CategoryHandler {
                 .onSuccess(res -> sendResponse(ctx, res))
                 .onFailure(err -> sendErrorResponse(ctx, err));
     }
-
 
     private void sendResponse(RoutingContext ctx, Object res) {
         ctx.response()
@@ -250,7 +256,8 @@ public class CategoryHandler {
 
     private int getQueryParamInt(RoutingContext ctx, String key, int defaultValue) {
         String val = ctx.queryParams().get(key);
-        if (val == null || val.isEmpty()) return defaultValue;
+        if (val == null || val.isEmpty())
+            return defaultValue;
         try {
             return Integer.parseInt(val);
         } catch (NumberFormatException e) {

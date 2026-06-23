@@ -233,7 +233,26 @@ public class UserRepository {
         .preparedQuery("""
               UPDATE users
               SET deleted_at = null
-              WHERE user_id = $1 AND deleted_at IS NULL
+              WHERE user_id = $1 AND deleted_at IS NOT NULL
+            """)
+        .execute(Tuple.of(userId))
+        .map(this::mapSingleOrNull);
+  }
+
+  public Future<User> findByTrashed(Integer userId) {
+    return client
+        .preparedQuery("""
+              SELECT
+                u.user_id,
+                u.firstname,
+                u.lastname,
+                u.email,
+                u.password,
+                u.created_at,
+                u.updated_at,
+                u.deleted_at
+              FROM users u
+              WHERE u.user_id = $1 AND u.deleted_at IS NOT NULL
             """)
         .execute(Tuple.of(userId))
         .map(this::mapSingleOrNull);

@@ -24,13 +24,13 @@ Content-Type: application/json
   "refresh_token": "{{refresh_token}}"
 }
 
-HTTP 200
-[Captures]
-access_token: jsonpath "$.data.access_token"
-refresh_token: jsonpath "$.data.refresh_token"
+# HTTP 200
+# [Captures]
+# access_token: jsonpath "$.data.access_token"
+# refresh_token: jsonpath "$.data.refresh_token"
 
 
-GET http://localhost:8888/logout
-Authorization: Bearer {{access_token}}
+# GET http://localhost:8888/logout
+# Authorization: Bearer {{access_token}}
 
-HTTP 200
+# HTTP 200

@@ -1,6 +1,13 @@
 package com.sanedge.example_crud.handler;
 
-import com.sanedge.example_crud.domain.requests.order.*;
+import com.sanedge.example_crud.domain.requests.order.CreateOrderRequest;
+import com.sanedge.example_crud.domain.requests.order.FindAllOrderRequest;
+import com.sanedge.example_crud.domain.requests.order.MonthOrderMerchantRequest;
+import com.sanedge.example_crud.domain.requests.order.MonthTotalRevenue;
+import com.sanedge.example_crud.domain.requests.order.MonthTotalRevenueMerchantRequest;
+import com.sanedge.example_crud.domain.requests.order.UpdateOrderRequest;
+import com.sanedge.example_crud.domain.requests.order.YearOrderMerchantRequest;
+import com.sanedge.example_crud.domain.requests.order.YearTotalRevenueMerchantRequest;
 import com.sanedge.example_crud.domain.response.api.ApiResponse;
 import com.sanedge.example_crud.service.OrderService;
 
@@ -15,21 +22,21 @@ public class OrderHandler {
 
     public void findAll(RoutingContext ctx) {
         FindAllOrderRequest req = mapFindAll(ctx);
-        service.getOrders(ctx, req)
+        service.getOrders(req)
                 .onSuccess(res -> sendResponse(ctx, res))
                 .onFailure(err -> sendErrorResponse(ctx, err));
     }
 
     public void findActive(RoutingContext ctx) {
         FindAllOrderRequest req = mapFindAll(ctx);
-        service.getOrdersActive(ctx, req)
+        service.getOrdersActive(req)
                 .onSuccess(res -> sendResponse(ctx, res))
                 .onFailure(err -> sendErrorResponse(ctx, err));
     }
 
     public void findById(RoutingContext ctx) {
         Long id = Long.parseLong(ctx.pathParam("id"));
-        service.getOrderById(ctx, id)
+        service.getOrderById(id)
                 .onSuccess(res -> sendResponse(ctx, res))
                 .onFailure(err -> sendErrorResponse(ctx, err));
     }
@@ -40,19 +47,21 @@ public class OrderHandler {
         int page = getQueryParamInt(ctx, "page", 1);
         int pageSize = getQueryParamInt(ctx, "pageSize", 10);
 
-        service.getOrdersByMerchant(ctx, merchantId, search, page, pageSize)
+        service.getOrdersByMerchant(merchantId, search, page, pageSize)
                 .onSuccess(res -> sendResponse(ctx, res))
                 .onFailure(err -> sendErrorResponse(ctx, err));
     }
 
     public void create(RoutingContext ctx) {
         JsonObject body = ctx.body().asJsonObject();
-        
-        Long merchantId = body.getLong("merchantId");
-        Long cashierId = body.getLong("cashierId");
-        Long totalPrice = body.getLong("totalPrice");
+        if (body == null) {
+            sendErrorResponse(ctx, new com.sanedge.example_crud.exception.BadRequestException("Request body cannot be empty"));
+            return;
+        }
 
-        service.createOrder(merchantId, cashierId, totalPrice)
+        CreateOrderRequest req = body.mapTo(CreateOrderRequest.class);
+
+        service.createOrder(req)
                 .onSuccess(res -> sendResponse(ctx, res))
                 .onFailure(err -> sendErrorResponse(ctx, err));
     }
@@ -60,10 +69,14 @@ public class OrderHandler {
     public void update(RoutingContext ctx) {
         Long id = Long.parseLong(ctx.pathParam("id"));
         JsonObject body = ctx.body().asJsonObject();
-        
-        Long totalPrice = body.getLong("totalPrice");
+        if (body == null) {
+            sendErrorResponse(ctx, new com.sanedge.example_crud.exception.BadRequestException("Request body cannot be empty"));
+            return;
+        }
+        UpdateOrderRequest req = body.mapTo(UpdateOrderRequest.class);
+        req.setOrderId(id.intValue());
 
-        service.updateOrder(id, totalPrice)
+        service.updateOrder(req)
                 .onSuccess(res -> sendResponse(ctx, res))
                 .onFailure(err -> sendErrorResponse(ctx, err));
     }
@@ -90,17 +103,16 @@ public class OrderHandler {
     }
 
     public void restoreAll(RoutingContext ctx) {
-        service.restoreAllOrders(ctx)
+        service.restoreAllOrders()
                 .onSuccess(res -> sendResponse(ctx, res))
                 .onFailure(err -> sendErrorResponse(ctx, err));
     }
 
     public void deleteAllPermanent(RoutingContext ctx) {
-        service.deleteAllPermanentOrders(ctx)
+        service.deleteAllPermanentOrders()
                 .onSuccess(res -> sendResponse(ctx, res))
                 .onFailure(err -> sendErrorResponse(ctx, err));
     }
-
 
     public void getMonthlyTotalRevenue(RoutingContext ctx) {
         MonthTotalRevenue req = new MonthTotalRevenue();
@@ -178,7 +190,6 @@ public class OrderHandler {
                 .onFailure(err -> sendErrorResponse(ctx, err));
     }
 
-
     private void sendResponse(RoutingContext ctx, Object res) {
         ctx.response()
                 .setStatusCode(200)
@@ -203,7 +214,8 @@ public class OrderHandler {
 
     private int getQueryParamInt(RoutingContext ctx, String key, int defaultValue) {
         String val = ctx.queryParams().get(key);
-        if (val == null || val.isEmpty()) return defaultValue;
+        if (val == null || val.isEmpty())
+            return defaultValue;
         try {
             return Integer.parseInt(val);
         } catch (NumberFormatException e) {

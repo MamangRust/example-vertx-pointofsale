@@ -9,50 +9,50 @@ import io.vertx.ext.web.Router;
 
 public final class UserRoutes {
 
-    private UserRoutes() {
-    }
+        private UserRoutes() {
+        }
 
-    public static void mount(
-            Router router,
-            JWTAuth jwtAuth,
-            UserHandler userHandler) {
+        public static void mount(
+                        Router router,
+                        JWTAuth jwtAuth,
+                        UserHandler userHandler) {
 
-        router.route("/users*")
-                .handler(JwtMiddleware.jwt(jwtAuth));
+                router.route("/users*")
+                                .handler(JwtMiddleware.jwt(jwtAuth));
 
-        router.get("/users")
-                .handler(RoleMiddleware.requireRole("ADMIN"))
-                .handler(userHandler::findAll);
+                router.get("/users")
+                                .handler(RoleMiddleware.requireRole("ADMIN"))
+                                .handler(userHandler::findAll);
 
-        router.get("/users")
-                .handler(RoleMiddleware.requireRole("ADMIN"))
-                .handler(userHandler::findActive);
+                router.get("/users")
+                                .handler(RoleMiddleware.requireRole("ADMIN"))
+                                .handler(userHandler::findActive);
 
-        router.get("/users")
-                .handler(RoleMiddleware.requireRole("ADMIN"))
-                .handler(userHandler::findTrashed);
+                router.get("/users")
+                                .handler(RoleMiddleware.requireRole("ADMIN"))
+                                .handler(userHandler::findTrashed);
 
-        router.get("/users/:id")
-                .handler(userHandler::findById);
+                router.get("/users/:id")
+                                .handler(userHandler::findById);
 
-        router.post("/users/update/:id")
-                .handler(userHandler::update);
+                router.post("/users/update/:id")
+                                .handler(userHandler::update);
 
-        router.post("/users/restore/:id")
-                .handler(userHandler::restore);
+                router.post("/users/restore/:id")
+                                .handler(userHandler::restore);
 
-        router.post("/users/trashed/:id")
-                .handler(userHandler::trashed);
+                router.post("/users/trashed/:id")
+                                .handler(userHandler::trashed);
 
-        router.delete("/users/deletePermanent/:id")
-                .handler(userHandler::deletePermanent);
+                router.delete("/users/deletePermanent/:id")
+                                .handler(userHandler::deletePermanent);
 
-        router.post("/users/restore-all")
-                .handler(RoleMiddleware.requireRole("ADMIN"))
-                .handler(userHandler::restoreAll);
+                router.post("/users/restore-all")
+                                .handler(RoleMiddleware.requireRole("ADMIN"))
+                                .handler(userHandler::restoreAllUsers);
 
-        router.delete("/products/delete-all-permanent")
-                .handler(RoleMiddleware.requireRole("ADMIN"))
-                .handler(userHandler::deleteAllPermanent);
-    }
+                router.delete("/products/delete-all-permanent")
+                                .handler(RoleMiddleware.requireRole("ADMIN"))
+                                .handler(userHandler::deleteAllPermanentUsers);
+        }
 }

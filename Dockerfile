@@ -16,10 +16,16 @@ LABEL description="Vert.x App with OpenTelemetry"
 
 RUN addgroup -S app && adduser -S app -G app && \
   apk add --no-cache curl
+
 WORKDIR /app
+
+
+RUN mkdir -p /app/file-uploads /app/uploads/merchant-documents && \
+    chown -R app:app /app/file-uploads /app/uploads/merchant-documents
 
 COPY --from=build /app/target/app.jar app.jar
 RUN chown app:app app.jar
+
 USER app
 
 EXPOSE 8888

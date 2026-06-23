@@ -157,7 +157,7 @@ public class RoleRepository {
         .preparedQuery("""
               UPDATE roles
               SET deleted_at = null
-              WHERE role_id = $1 AND deleted_at IS NULL
+              WHERE role_id = $1 AND deleted_at IS NOT NULL
             """)
         .execute(Tuple.of(roleId))
         .map(this::mapSingleOrNull);
@@ -168,6 +168,17 @@ public class RoleRepository {
         .preparedQuery("DELETE FROM roles WHERE role_id = $1")
         .execute(Tuple.of(roleId))
         .mapEmpty();
+  }
+
+  public Future<Role> findByTrashed(Integer roleId) {
+    return client
+        .preparedQuery("""
+              SELECT role_id, role_name, created_at, updated_at, deleted_at
+              FROM roles
+              WHERE role_id = $1 AND deleted_at IS NOT NULL
+            """)
+        .execute(Tuple.of(roleId))
+        .map(this::mapSingleOrNull);
   }
 
   public Future<Integer> restoreAllRoles() {

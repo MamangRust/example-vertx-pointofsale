@@ -290,6 +290,27 @@ public class CategoryRepository {
                 .map(RowSet::rowCount);
     }
 
+    public Future<Category> findByTrashed(Long categoryId) {
+        return client
+                .preparedQuery("""
+                        SELECT
+                            category_id,
+                            name,
+                            description,
+                            slug_category,
+                            created_at,
+                            updated_at,
+                            deleted_at
+                        FROM categories
+                        WHERE
+                            category_id = $1
+                            AND deleted_at IS NOT NULL;
+                        """)
+                .execute(Tuple.of(categoryId))
+                .map(rows -> rows.iterator().hasNext() ? Category.fromRow(rows.iterator().next()) : null);
+    }
+
+
 
     private Tuple getMonthlyTuple(int year, int month) {
         LocalDate startDate = LocalDate.of(year, month, 1);

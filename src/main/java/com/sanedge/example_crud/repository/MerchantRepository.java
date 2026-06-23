@@ -141,7 +141,7 @@ public class MerchantRepository {
                 .map(rows -> rows.iterator().hasNext() ? Merchant.fromRow(rows.iterator().next()) : null);
     }
 
-        public Future<Merchant> createMerchant(CreateMerchantRequest req) {
+    public Future<Merchant> createMerchant(CreateMerchantRequest req) {
         return client
                 .preparedQuery("""
                         INSERT INTO
@@ -289,6 +289,29 @@ public class MerchantRepository {
                 .map(RowSet::rowCount);
     }
 
+    public Future<Merchant> findByTrashed(Long merchantId) {
+        return client
+                .preparedQuery("""
+                        SELECT
+                            merchant_id,
+                            user_id,
+                            name,
+                            description,
+                            address,
+                            contact_email,
+                            contact_phone,
+                            status,
+                            created_at,
+                            updated_at,
+                            deleted_at
+                        FROM merchants
+                        WHERE
+                            merchant_id = $1
+                            AND deleted_at IS NOT NULL;
+                        """)
+                .execute(Tuple.of(merchantId))
+                .map(rows -> rows.iterator().hasNext() ? Merchant.fromRow(rows.iterator().next()) : null);
+    }
 
     private String normalizeSearch(String search) {
         if (search == null || search.isBlank())

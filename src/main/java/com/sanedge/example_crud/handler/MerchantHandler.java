@@ -1,8 +1,12 @@
 package com.sanedge.example_crud.handler;
 
+import com.sanedge.example_crud.domain.requests.merchant.CreateMerchantRequest;
 import com.sanedge.example_crud.domain.requests.merchant.FindAllMerchants;
+import com.sanedge.example_crud.domain.requests.merchant.UpdateMerchantRequest;
 import com.sanedge.example_crud.service.MerchantService;
+
 import io.vertx.core.json.Json;
+import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
 import lombok.RequiredArgsConstructor;
 
@@ -16,7 +20,7 @@ public class MerchantHandler {
                 .onSuccess(res -> sendResponse(ctx, res))
                 .onFailure(err -> sendErrorResponse(ctx, err));
     }
-    
+
     public void findActive(RoutingContext ctx) {
         FindAllMerchants req = mapFindAll(ctx);
         service.getActive(req)
@@ -34,6 +38,67 @@ public class MerchantHandler {
     public void findById(RoutingContext ctx) {
         Long id = Long.parseLong(ctx.pathParam("id"));
         service.getById(id)
+                .onSuccess(res -> sendResponse(ctx, res))
+                .onFailure(err -> sendErrorResponse(ctx, err));
+    }
+
+    public void create(RoutingContext ctx) {
+        JsonObject body = ctx.body().asJsonObject();
+        if (body == null) {
+            sendErrorResponse(ctx, new com.sanedge.example_crud.exception.BadRequestException("Request body cannot be empty"));
+            return;
+        }
+        CreateMerchantRequest req = body.mapTo(CreateMerchantRequest.class);
+
+        service.create(req)
+                .onSuccess(res -> sendResponse(ctx, res))
+                .onFailure(err -> sendErrorResponse(ctx, err));
+    }
+
+    public void update(RoutingContext ctx) {
+        Long id = Long.parseLong(ctx.pathParam("id"));
+        JsonObject body = ctx.body().asJsonObject();
+        if (body == null) {
+            sendErrorResponse(ctx, new com.sanedge.example_crud.exception.BadRequestException("Request body cannot be empty"));
+            return;
+        }
+        UpdateMerchantRequest req = body.mapTo(UpdateMerchantRequest.class);
+        req.setMerchantId(id.intValue());
+
+        service.update(req)
+                .onSuccess(res -> sendResponse(ctx, res))
+                .onFailure(err -> sendErrorResponse(ctx, err));
+    }
+
+    public void trash(RoutingContext ctx) {
+        Long id = Long.parseLong(ctx.pathParam("id"));
+        service.trash(id)
+                .onSuccess(res -> sendResponse(ctx, res))
+                .onFailure(err -> sendErrorResponse(ctx, err));
+    }
+
+    public void restore(RoutingContext ctx) {
+        Long id = Long.parseLong(ctx.pathParam("id"));
+        service.restore(id)
+                .onSuccess(res -> sendResponse(ctx, res))
+                .onFailure(err -> sendErrorResponse(ctx, err));
+    }
+
+    public void deletePermanent(RoutingContext ctx) {
+        Long id = Long.parseLong(ctx.pathParam("id"));
+        service.deletePermanent(id)
+                .onSuccess(res -> sendResponse(ctx, res))
+                .onFailure(err -> sendErrorResponse(ctx, err));
+    }
+
+    public void restoreAll(RoutingContext ctx) {
+        service.restoreAll()
+                .onSuccess(res -> sendResponse(ctx, res))
+                .onFailure(err -> sendErrorResponse(ctx, err));
+    }
+
+    public void deleteAllPermanent(RoutingContext ctx) {
+        service.deleteAllPermanent()
                 .onSuccess(res -> sendResponse(ctx, res))
                 .onFailure(err -> sendErrorResponse(ctx, err));
     }
@@ -56,6 +121,7 @@ public class MerchantHandler {
     }
 
     private void sendErrorResponse(RoutingContext ctx, Throwable err) {
-        ctx.response().setStatusCode(500).putHeader("Content-Type", "application/json").end(Json.encodePrettily(com.sanedge.example_crud.domain.response.api.ApiResponse.error(err.getMessage())));
+        ctx.response().setStatusCode(500).putHeader("Content-Type", "application/json").end(
+                Json.encodePrettily(com.sanedge.example_crud.domain.response.api.ApiResponse.error(err.getMessage())));
     }
 }

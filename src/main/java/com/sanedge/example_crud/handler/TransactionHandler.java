@@ -1,7 +1,9 @@
 package com.sanedge.example_crud.handler;
 
 import com.sanedge.example_crud.domain.requests.transactions.*;
-import com.sanedge.example_crud.domain.response.api.ApiResponse;
+import com.sanedge.example_crud.exception.BadRequestException;
+import com.sanedge.example_crud.exception.NotFoundException;
+import com.sanedge.example_crud.exception.UnauthorizedException;
 import com.sanedge.example_crud.service.TransactionService;
 
 import io.vertx.core.json.Json;
@@ -16,36 +18,36 @@ public class TransactionHandler {
     public void findAll(RoutingContext ctx) {
         FindAllTransactionRequest req = mapFindAll(ctx);
         service.getAll(req)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void findActive(RoutingContext ctx) {
         FindAllTransactionRequest req = mapFindAll(ctx);
         service.getActive(req)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void findTrashed(RoutingContext ctx) {
         FindAllTransactionRequest req = mapFindAll(ctx);
         service.getTrashed(req)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void findById(RoutingContext ctx) {
         Long id = Long.parseLong(ctx.pathParam("id"));
         service.getById(id)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void findByOrderId(RoutingContext ctx) {
         Long orderId = Long.parseLong(ctx.pathParam("orderId"));
         service.getByOrderId(orderId)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void findByMerchant(RoutingContext ctx) {
@@ -57,60 +59,68 @@ public class TransactionHandler {
         req.setPageSize(getQueryParamInt(ctx, "pageSize", 10));
 
         service.getByMerchant(req)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void create(RoutingContext ctx) {
         JsonObject body = ctx.body().asJsonObject();
+        if (body == null) {
+            handleError(ctx, new BadRequestException("Request body cannot be empty"));
+            return;
+        }
         CreateTransactionRequest req = body.mapTo(CreateTransactionRequest.class);
         service.createTransaction(req)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 201, res)) // 201 Created
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void update(RoutingContext ctx) {
         Long id = Long.parseLong(ctx.pathParam("id"));
         JsonObject body = ctx.body().asJsonObject();
+        if (body == null) {
+            handleError(ctx, new BadRequestException("Request body cannot be empty"));
+            return;
+        }
         UpdateTransactionRequest req = body.mapTo(UpdateTransactionRequest.class);
         req.setTransactionID(id.intValue());
 
         service.updateTransaction(req)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void trash(RoutingContext ctx) {
         Long id = Long.parseLong(ctx.pathParam("id"));
         service.trash(id)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void restore(RoutingContext ctx) {
         Long id = Long.parseLong(ctx.pathParam("id"));
         service.restore(id)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void deletePermanent(RoutingContext ctx) {
         Long id = Long.parseLong(ctx.pathParam("id"));
         service.deletePermanent(id)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void restoreAll(RoutingContext ctx) {
         service.restoreAll()
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void deleteAllPermanent(RoutingContext ctx) {
         service.deleteAllPermanent()
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void getMonthlyAmountSuccess(RoutingContext ctx) {
@@ -118,8 +128,8 @@ public class TransactionHandler {
         req.setYear(getQueryParamInt(ctx, "year", 2024));
         req.setMonth(getQueryParamInt(ctx, "month", 1));
         service.getMonthlyAmountSuccess(req)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void getMonthlyAmountFailed(RoutingContext ctx) {
@@ -127,22 +137,22 @@ public class TransactionHandler {
         req.setYear(getQueryParamInt(ctx, "year", 2024));
         req.setMonth(getQueryParamInt(ctx, "month", 1));
         service.getMonthlyAmountFailed(req)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void getYearlyAmountSuccess(RoutingContext ctx) {
         int year = getQueryParamInt(ctx, "year", 2024);
         service.getYearlyAmountSuccess(year)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void getYearlyAmountFailed(RoutingContext ctx) {
         int year = getQueryParamInt(ctx, "year", 2024);
         service.getYearlyAmountFailed(year)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void getMonthlyMethodsSuccess(RoutingContext ctx) {
@@ -150,8 +160,8 @@ public class TransactionHandler {
         req.setYear(getQueryParamInt(ctx, "year", 2024));
         req.setMonth(getQueryParamInt(ctx, "month", 1));
         service.getMonthlyMethodsSuccess(req)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void getMonthlyMethodsFailed(RoutingContext ctx) {
@@ -159,26 +169,22 @@ public class TransactionHandler {
         req.setYear(getQueryParamInt(ctx, "year", 2024));
         req.setMonth(getQueryParamInt(ctx, "month", 1));
         service.getMonthlyMethodsFailed(req)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void getYearlyMethodsSuccess(RoutingContext ctx) {
         int year = getQueryParamInt(ctx, "year", 2024);
         service.getYearlyMethodsSuccess(year)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void getYearlyMethodsFailed(RoutingContext ctx) {
         int year = getQueryParamInt(ctx, "year", 2024);
         service.getYearlyMethodsFailed(year)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
-    }
-
-    private Long getPathMerchantId(RoutingContext ctx) {
-        return Long.parseLong(ctx.pathParam("merchantId"));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void getMonthlyAmountSuccessByMerchant(RoutingContext ctx) {
@@ -187,8 +193,8 @@ public class TransactionHandler {
         req.setYear(getQueryParamInt(ctx, "year", 2024));
         req.setMonth(getQueryParamInt(ctx, "month", 1));
         service.getMonthlyAmountSuccessByMerchant(req)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void getMonthlyAmountFailedByMerchant(RoutingContext ctx) {
@@ -197,8 +203,8 @@ public class TransactionHandler {
         req.setYear(getQueryParamInt(ctx, "year", 2024));
         req.setMonth(getQueryParamInt(ctx, "month", 1));
         service.getMonthlyAmountFailedByMerchant(req)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void getYearlyAmountSuccessByMerchant(RoutingContext ctx) {
@@ -206,8 +212,8 @@ public class TransactionHandler {
         req.setMerchantId(getPathMerchantId(ctx).intValue());
         req.setYear(getQueryParamInt(ctx, "year", 2024));
         service.getYearlyAmountSuccessByMerchant(req)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void getYearlyAmountFailedByMerchant(RoutingContext ctx) {
@@ -215,8 +221,8 @@ public class TransactionHandler {
         req.setMerchantId(getPathMerchantId(ctx).intValue());
         req.setYear(getQueryParamInt(ctx, "year", 2024));
         service.getYearlyAmountFailedByMerchant(req)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void getMonthlyMethodsByMerchantSuccess(RoutingContext ctx) {
@@ -225,8 +231,8 @@ public class TransactionHandler {
         req.setYear(getQueryParamInt(ctx, "year", 2024));
         req.setMonth(getQueryParamInt(ctx, "month", 1));
         service.getMonthlyMethodsByMerchantSuccess(req)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void getMonthlyMethodsByMerchantFailed(RoutingContext ctx) {
@@ -235,8 +241,8 @@ public class TransactionHandler {
         req.setYear(getQueryParamInt(ctx, "year", 2024));
         req.setMonth(getQueryParamInt(ctx, "month", 1));
         service.getMonthlyMethodsByMerchantFailed(req)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void getYearlyMethodsByMerchantSuccess(RoutingContext ctx) {
@@ -244,8 +250,8 @@ public class TransactionHandler {
         req.setMerchantId(getPathMerchantId(ctx).intValue());
         req.setYear(getQueryParamInt(ctx, "year", 2024));
         service.getYearlyMethodsByMerchantSuccess(req)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
     public void getYearlyMethodsByMerchantFailed(RoutingContext ctx) {
@@ -253,23 +259,37 @@ public class TransactionHandler {
         req.setMerchantId(getPathMerchantId(ctx).intValue());
         req.setYear(getQueryParamInt(ctx, "year", 2024));
         service.getYearlyMethodsByMerchantFailed(req)
-                .onSuccess(res -> sendResponse(ctx, res))
-                .onFailure(err -> sendErrorResponse(ctx, err));
+                .onSuccess(res -> sendSuccess(ctx, 200, res))
+                .onFailure(err -> handleError(ctx, err));
     }
 
+    private Long getPathMerchantId(RoutingContext ctx) {
+        return Long.parseLong(ctx.pathParam("merchantId"));
+    }
 
-    private void sendResponse(RoutingContext ctx, Object res) {
+    private void sendSuccess(RoutingContext ctx, int statusCode, Object res) {
         ctx.response()
-                .setStatusCode(200)
+                .setStatusCode(statusCode)
                 .putHeader("Content-Type", "application/json")
                 .end(Json.encodePrettily(res));
     }
 
-    private void sendErrorResponse(RoutingContext ctx, Throwable err) {
+    private void handleError(RoutingContext ctx, Throwable err) {
+        int statusCode = 500;
+        if (err instanceof BadRequestException) {
+            statusCode = 400;
+        } else if (err instanceof NotFoundException) {
+            statusCode = 404;
+        } else if (err instanceof UnauthorizedException) {
+            statusCode = 401;
+        }
+
         ctx.response()
-                .setStatusCode(500)
+                .setStatusCode(statusCode)
                 .putHeader("Content-Type", "application/json")
-                .end(Json.encodePrettily(ApiResponse.error(err.getMessage())));
+                .end(Json.encodePrettily(new JsonObject()
+                        .put("status", "error")
+                        .put("message", err.getMessage())));
     }
 
     private FindAllTransactionRequest mapFindAll(RoutingContext ctx) {
@@ -282,7 +302,8 @@ public class TransactionHandler {
 
     private int getQueryParamInt(RoutingContext ctx, String key, int defaultValue) {
         String val = ctx.queryParams().get(key);
-        if (val == null || val.isEmpty()) return defaultValue;
+        if (val == null || val.isEmpty())
+            return defaultValue;
         try {
             return Integer.parseInt(val);
         } catch (NumberFormatException e) {

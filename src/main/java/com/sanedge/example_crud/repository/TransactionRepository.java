@@ -188,6 +188,29 @@ public class TransactionRepository {
                 .map(RowSet::rowCount);
     }
 
+    public Future<Transaction> findByTrashed(Long transactionId) {
+        return client
+                .preparedQuery("""
+                        SELECT
+                            transaction_id,
+                            order_id,
+                            merchant_id,
+                            payment_method,
+                            amount,
+                            payment_status,
+                            created_at,
+                            updated_at,
+                            deleted_at
+                        FROM transactions
+                        WHERE
+                            transaction_id = $1
+                            AND deleted_at IS NOT NULL;
+                        """)
+                .execute(Tuple.of(transactionId))
+                .map(rows -> rows.iterator().hasNext() ? Transaction.fromRow(rows.iterator().next()) : null);
+    }
+
+
     private Tuple getMonthlyTuple(int year, int month) {
         LocalDate start = LocalDate.of(year, month, 1);
         LocalDate end = start.withDayOfMonth(start.lengthOfMonth());

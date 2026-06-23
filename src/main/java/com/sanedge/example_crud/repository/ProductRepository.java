@@ -472,6 +472,35 @@ public class ProductRepository {
                 .map(RowSet::rowCount);
     }
 
+    public Future<Product> findByTrashed(Long productId) {
+        return client
+                .preparedQuery("""
+                        SELECT
+                            product_id,
+                            merchant_id,
+                            category_id,
+                            name,
+                            description,
+                            price,
+                            count_in_stock,
+                            brand,
+                            weight,
+                            slug_product,
+                            image_product,
+                            barcode,
+                            created_at,
+                            updated_at,
+                            deleted_at
+                        FROM products
+                        WHERE
+                            product_id = $1
+                            AND deleted_at IS NOT NULL;
+                        """)
+                .execute(Tuple.of(productId))
+                .map(rows -> rows.iterator().hasNext() ? Product.fromRow(rows.iterator().next()) : null);
+    }
+
+
 
     private String normalizeSearch(String search) {
         if (search == null || search.isBlank())

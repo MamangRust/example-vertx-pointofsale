@@ -8,53 +8,53 @@ import io.vertx.ext.auth.jwt.JWTAuth;
 import io.vertx.ext.web.Router;
 
 public final class RoleRoutes {
-    private RoleRoutes() {
-    }
+        private RoleRoutes() {
+        }
 
-    public static void mount(
-            Router router,
-            JWTAuth jwtAuth,
-            RoleHandler roleHandler) {
+        public static void mount(
+                        Router router,
+                        JWTAuth jwtAuth,
+                        RoleHandler roleHandler) {
 
-        router.route("/roles*")
-                .handler(JwtMiddleware.jwt(jwtAuth));
+                router.route("/roles*")
+                                .handler(JwtMiddleware.jwt(jwtAuth));
 
-        router.get("/roles")
-                .handler(RoleMiddleware.requireRole("ADMIN"))
-                .handler(roleHandler::findAll);
+                router.get("/roles")
+                                .handler(RoleMiddleware.requireRole("ADMIN"))
+                                .handler(roleHandler::findAll);
 
-        router.get("/roles")
-                .handler(RoleMiddleware.requireRole("ADMIN"))
-                .handler(roleHandler::findActive);
+                router.get("/roles")
+                                .handler(RoleMiddleware.requireRole("ADMIN"))
+                                .handler(roleHandler::findActive);
 
-        router.get("/roles")
-                .handler(RoleMiddleware.requireRole("ADMIN"))
-                .handler(roleHandler::findTrashed);
+                router.get("/roles")
+                                .handler(RoleMiddleware.requireRole("ADMIN"))
+                                .handler(roleHandler::findTrashed);
 
-        router.get("/roles/:id")
-                .handler(roleHandler::findById);
+                router.get("/roles/:id")
+                                .handler(roleHandler::findById);
 
-        router.post("/roles")
-                .handler(roleHandler::create);
+                router.post("/roles")
+                                .handler(roleHandler::create);
 
-        router.post("/roles/:id")
-                .handler(roleHandler::update);
+                router.post("/roles/:id")
+                                .handler(roleHandler::update);
 
-        router.post("/roles/restore/:id")
-                .handler(roleHandler::restore);
+                router.post("/roles/restore/:id")
+                                .handler(roleHandler::restore);
 
-        router.post("/roles/trashed/:id")
-                .handler(roleHandler::trashed);
+                router.post("/roles/trashed/:id")
+                                .handler(roleHandler::trashed);
 
-        router.delete("/roles/deletePermanent/:id")
-                .handler(roleHandler::deletePermanent);
+                router.delete("/roles/deletePermanent/:id")
+                                .handler(roleHandler::deletePermanent);
 
-        router.post("/roles/restore-all")
-                .handler(RoleMiddleware.requireRole("ADMIN"))
-                .handler(roleHandler::restoreAll);
+                router.post("/roles/restore-all")
+                                .handler(RoleMiddleware.requireRole("ADMIN"))
+                                .handler(roleHandler::restoreAllRoles);
 
-        router.delete("/roles/delete-all-permanent")
-                .handler(RoleMiddleware.requireRole("ADMIN"))
-                .handler(roleHandler::deleteAllPermanent);
-    }
+                router.delete("/roles/delete-all-permanent")
+                                .handler(RoleMiddleware.requireRole("ADMIN"))
+                                .handler(roleHandler::deleteAllPermanentRoles);
+        }
 }

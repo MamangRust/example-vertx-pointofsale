@@ -259,6 +259,26 @@ public class CashierRepository {
                 .mapEmpty();
     }
 
+    public Future<Cashier> findByTrashed(Long cashierId) {
+        return client
+                .preparedQuery("""
+                        SELECT
+                            cashier_id,
+                            merchant_id,
+                            user_id,
+                            name,
+                            created_at,
+                            updated_at,
+                            deleted_at
+                        FROM cashiers
+                        WHERE
+                            cashier_id = $1
+                            AND deleted_at IS NOT NULL;
+                        """)
+                .execute(Tuple.of(cashierId))
+                .map(rows -> rows.iterator().hasNext() ? Cashier.fromRow(rows.iterator().next()) : null);
+    }
+
     public Future<Integer> restoreAllCashiers() {
         return client
                 .preparedQuery("UPDATE cashiers SET deleted_at = NULL WHERE deleted_at IS NOT NULL")

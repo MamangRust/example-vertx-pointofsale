@@ -3,7 +3,8 @@ package com.sanedge.example_crud.handler;
 import com.sanedge.example_crud.domain.requests.role.CreateRoleRequest;
 import com.sanedge.example_crud.domain.requests.role.FindAllRoles;
 import com.sanedge.example_crud.domain.requests.role.UpdateRoleRequest;
-import com.sanedge.example_crud.domain.response.api.ApiResponse;
+import com.sanedge.example_crud.exception.BadRequestException;
+import com.sanedge.example_crud.exception.NotFoundException;
 import com.sanedge.example_crud.service.RoleService;
 
 import io.vertx.core.json.Json;
@@ -19,127 +20,94 @@ public class RoleHandler {
     FindAllRoles req = mapFindAllRoles(ctx);
 
     service.getAllRoles(req)
-        .onSuccess(res -> sendResponse(ctx, res))
-        .onFailure(err -> sendErrorResponse(ctx, err));
+        .onSuccess(res -> sendJsonResponse(ctx, res))
+        .onFailure(err -> handleFailure(ctx, err));
   }
 
   public void findActive(RoutingContext ctx) {
     FindAllRoles req = mapFindAllRoles(ctx);
 
     service.getActiveRoles(req)
-        .onSuccess(res -> sendResponse(ctx, res))
-        .onFailure(err -> sendErrorResponse(ctx, err));
+        .onSuccess(res -> sendJsonResponse(ctx, res))
+        .onFailure(err -> handleFailure(ctx, err));
   }
 
   public void findTrashed(RoutingContext ctx) {
     FindAllRoles req = mapFindAllRoles(ctx);
 
     service.getTrashedRoles(req)
-        .onSuccess(res -> sendResponse(ctx, res))
-        .onFailure(err -> sendErrorResponse(ctx, err));
+        .onSuccess(res -> sendJsonResponse(ctx, res))
+        .onFailure(err -> handleFailure(ctx, err));
   }
 
   public void findById(RoutingContext ctx) {
-    try {
-      Integer roleId = Integer.parseInt(ctx.pathParam("id"));
-      service.getRoleById(roleId)
-          .onSuccess(role -> sendResponse(ctx, role))
-          .onFailure(err -> sendErrorResponse(ctx, err));
-    } catch (NumberFormatException e) {
-      sendErrorResponse(ctx, new IllegalArgumentException("Invalid role ID format"));
-    }
+    Integer roleId = Integer.parseInt(ctx.pathParam("id"));
+    service.getRoleById(roleId)
+        .onSuccess(res -> sendJsonResponse(ctx, res))
+        .onFailure(err -> handleFailure(ctx, err));
   }
 
   public void create(RoutingContext ctx) {
-    try {
-      JsonObject body = ctx.body().asJsonObject();
-      CreateRoleRequest req = CreateRoleRequest.builder()
-          .name(body.getString("roleName"))
-          .build();
-
-      service.createRole(req)
-          .onSuccess(created -> sendResponse(ctx, created))
-          .onFailure(err -> sendErrorResponse(ctx, err));
-    } catch (Exception e) {
-      sendErrorResponse(ctx, e);
+    JsonObject body = ctx.body().asJsonObject();
+    if (body == null) {
+      handleFailure(ctx, new BadRequestException("Request body cannot be empty"));
+      return;
     }
+
+    CreateRoleRequest req = CreateRoleRequest.builder().name(body.getString("roleName")).build();
+
+    service.createRole(req)
+        .onSuccess(res -> sendJsonResponse(ctx, res))
+        .onFailure(err -> handleFailure(ctx, err));
   }
 
   public void update(RoutingContext ctx) {
-    try {
-      Integer roleId = Integer.parseInt(ctx.pathParam("id"));
-      JsonObject body = ctx.body().asJsonObject();
-
-      UpdateRoleRequest updateRoleRequest = UpdateRoleRequest.builder()
-          .roleId(roleId)
-          .name(body.getString("roleName"))
-          .build();
-
-      service.updateRole(updateRoleRequest)
-          .onSuccess(v -> sendResponse(ctx, v))
-          .onFailure(err -> sendErrorResponse(ctx, err));
-    } catch (NumberFormatException e) {
-      sendErrorResponse(ctx, new IllegalArgumentException("Invalid role ID format"));
+    Integer roleId = Integer.parseInt(ctx.pathParam("id"));
+    JsonObject body = ctx.body().asJsonObject();
+    if (body == null) {
+      handleFailure(ctx, new BadRequestException("Request body cannot be empty"));
+      return;
     }
+
+    UpdateRoleRequest updateRoleRequest = UpdateRoleRequest.builder().roleId(roleId).name(body.getString("roleName"))
+        .build();
+
+    service.updateRole(updateRoleRequest)
+        .onSuccess(res -> sendJsonResponse(ctx, res))
+        .onFailure(err -> handleFailure(ctx, err));
   }
 
   public void trashed(RoutingContext ctx) {
-    try {
-      Integer roleId = Integer.parseInt(ctx.pathParam("id"));
-      service.trashed(roleId)
-          .onSuccess(v -> sendResponse(ctx, v))
-          .onFailure(err -> sendErrorResponse(ctx, err));
-    } catch (NumberFormatException e) {
-      sendErrorResponse(ctx, new IllegalArgumentException("Invalid role ID format"));
-    }
+    Integer roleId = Integer.parseInt(ctx.pathParam("id"));
+    service.trashed(roleId)
+        .onSuccess(res -> sendJsonResponse(ctx, res))
+        .onFailure(err -> handleFailure(ctx, err));
   }
 
   public void restore(RoutingContext ctx) {
-    try {
-      Integer roleId = Integer.parseInt(ctx.pathParam("id"));
-      service.restore(roleId)
-          .onSuccess(v -> sendResponse(ctx, v))
-          .onFailure(err -> sendErrorResponse(ctx, err));
-    } catch (NumberFormatException e) {
-      sendErrorResponse(ctx, new IllegalArgumentException("Invalid role ID format"));
-    }
+    Integer roleId = Integer.parseInt(ctx.pathParam("id"));
+    service.restore(roleId)
+        .onSuccess(res -> sendJsonResponse(ctx, res))
+        .onFailure(err -> handleFailure(ctx, err));
   }
 
   public void deletePermanent(RoutingContext ctx) {
-    try {
-      Integer roleId = Integer.parseInt(ctx.pathParam("id"));
-      service.deletePermanent(roleId)
-          .onSuccess(v -> sendResponse(ctx, v))
-          .onFailure(err -> sendErrorResponse(ctx, err));
-    } catch (NumberFormatException e) {
-      sendErrorResponse(ctx, new IllegalArgumentException("Invalid role ID format"));
-    }
+    Integer roleId = Integer.parseInt(ctx.pathParam("id"));
+    service.deletePermanent(roleId)
+        .onSuccess(res -> sendJsonResponse(ctx, res))
+        .onFailure(err -> handleFailure(ctx, err));
   }
 
-  public void restoreAll(RoutingContext ctx) {
+  public void restoreAllRoles(RoutingContext ctx) {
     service.restoreAll()
-        .onSuccess(res -> sendResponse(ctx, res))
-        .onFailure(err -> sendErrorResponse(ctx, err));
+        .onSuccess(res -> sendJsonResponse(ctx, res))
+        .onFailure(err -> handleFailure(ctx, err));
   }
 
-  public void deleteAllPermanent(RoutingContext ctx) {
+  public void deleteAllPermanentRoles(RoutingContext ctx) {
     service.deleteAllPermanent()
-        .onSuccess(res -> sendResponse(ctx, res))
-        .onFailure(err -> sendErrorResponse(ctx, err));
-  }
-
-  private void sendResponse(RoutingContext ctx, Object res) {
-    ctx.response()
-        .setStatusCode(200)
-        .putHeader("Content-Type", "application/json")
-        .end(Json.encodePrettily(res));
-  }
-
-  private void sendErrorResponse(RoutingContext ctx, Throwable err) {
-    ctx.response()
-        .setStatusCode(500)
-        .putHeader("Content-Type", "application/json")
-        .end(Json.encodePrettily(ApiResponse.error(err.getMessage())));
+        .onSuccess(res -> sendJsonResponse(ctx, res))
+        .onFailure(err -> handleFailure(ctx, err));
   }
 
   private FindAllRoles mapFindAllRoles(RoutingContext ctx) {
@@ -157,4 +125,26 @@ public class RoleHandler {
 
     return req;
   }
+
+  private void sendJsonResponse(RoutingContext ctx, Object result) {
+    ctx.response()
+        .putHeader("Content-Type", "application/json")
+        .end(Json.encode(result));
+  }
+
+  private void handleFailure(RoutingContext ctx, Throwable err) {
+    int statusCode = 500;
+
+    if (err instanceof BadRequestException) {
+      statusCode = 400;
+    } else if (err instanceof NotFoundException) {
+      statusCode = 404;
+    }
+
+    ctx.response()
+        .setStatusCode(statusCode)
+        .putHeader("Content-Type", "application/json")
+        .end(Json.encode(new JsonObject().put("error", err.getMessage())));
+  }
+
 }

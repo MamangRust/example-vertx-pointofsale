@@ -2,17 +2,31 @@ package com.sanedge.example_crud.service;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.sanedge.example_crud.domain.requests.order.CreateOrderRecordRequest;
+import com.sanedge.example_crud.domain.requests.order.CreateOrderRequest;
 import com.sanedge.example_crud.domain.requests.order.FindAllOrderRequest;
 import com.sanedge.example_crud.domain.requests.order.MonthOrderMerchantRequest;
 import com.sanedge.example_crud.domain.requests.order.MonthTotalRevenue;
 import com.sanedge.example_crud.domain.requests.order.MonthTotalRevenueMerchantRequest;
+import com.sanedge.example_crud.domain.requests.order.UpdateOrderRecordRequest;
+import com.sanedge.example_crud.domain.requests.order.UpdateOrderRequest;
 import com.sanedge.example_crud.domain.requests.order.YearOrderMerchantRequest;
 import com.sanedge.example_crud.domain.requests.order.YearTotalRevenueMerchantRequest;
+import com.sanedge.example_crud.domain.requests.order_item.CreateOrderItemRecordRequest;
+import com.sanedge.example_crud.domain.requests.order_item.CreateOrderItemRequest;
+import com.sanedge.example_crud.domain.requests.order_item.UpdateOrderItemRecordRequest;
+import com.sanedge.example_crud.domain.requests.order_item.UpdateOrderItemRequest;
 import com.sanedge.example_crud.domain.response.api.ApiResponse;
+import com.sanedge.example_crud.domain.response.api.ApiResponsePagination;
 import com.sanedge.example_crud.domain.response.api.PagedResult;
+import com.sanedge.example_crud.domain.response.api.PaginationMeta;
+import com.sanedge.example_crud.domain.response.order.OrderResponse;
 import com.sanedge.example_crud.exception.CustomException;
 import com.sanedge.example_crud.model.order.Order;
 import com.sanedge.example_crud.model.order.OrderMonth;
@@ -22,339 +36,568 @@ import com.sanedge.example_crud.model.order.OrderYearTotalRevenue;
 import com.sanedge.example_crud.observability.TracingMetrics;
 import com.sanedge.example_crud.repository.CashierRepository;
 import com.sanedge.example_crud.repository.MerchantRepository;
+import com.sanedge.example_crud.repository.OrderItemRepository;
 import com.sanedge.example_crud.repository.OrderRepository;
+import com.sanedge.example_crud.repository.ProductRepository;
 
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.trace.Span;
 import io.vertx.core.Future;
-import io.vertx.core.json.Json;
-import io.vertx.ext.web.RoutingContext;
+import io.vertx.core.json.JsonArray;
+import io.vertx.core.json.JsonObject;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 @RequiredArgsConstructor
 public class OrderService {
+    private static final Logger logger = LoggerFactory.getLogger(OrderService.class);
+
     private final OrderRepository orderRepository;
+    private final ProductRepository productRepository;
     private final MerchantRepository merchantRepository;
+    private final OrderItemRepository orderItemRepository;
     private final CashierRepository cashierRepository;
     private final RedisService redisService;
     private final TracingMetrics tracingMetrics;
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
+    public Future<ApiResponsePagination<List<Order>>> getOrders(FindAllOrderRequest req) {
+        TracingMetrics.TracingContext ctx = tracingMetrics.startSpan("OrderService.getOrders");
+        int page = req.getPage() > 0 ? req.getPage() - 1 : 0;
+        int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
+        String keyword = (req.getSearch() != null && !req.getSearch().isEmpty()) ? req.getSearch() : "";
+        req.setSearch(keyword);
+        req.setPage(page);
+        req.setPageSize(pageSize);
 
-    public Future<ApiResponse<PagedResult<Order>>> getOrders(RoutingContext ctx, FindAllOrderRequest req) {
-        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan("OrderService.getOrders");
-        String cacheKey = String.format("orders:list:%s:%d:%d", req.getSearch(), req.getPage(), req.getPageSize());
-
-        return redisService.get(cacheKey)
-                .compose(cached -> handleCacheOrRepo(cached, cacheKey,
-                        () -> orderRepository.getOrders(req.getSearch(), req.getPage(), req.getPageSize()),
-                        new TypeReference<PagedResult<Order>>() {}, tracingCtx, "get_orders"))
-                .recover(err -> handleReportError(tracingCtx, err));
+        return fetchPaginatedOrders(
+                req, "orders:all", page, pageSize, keyword,
+                r -> orderRepository.getOrders(r.getSearch(), r.getPage(), r.getPageSize()),
+                Function.identity(), ctx, "get_orders", "Orders fetched successfully");
     }
 
-    public Future<ApiResponse<PagedResult<Order>>> getOrdersActive(RoutingContext ctx, FindAllOrderRequest req) {
-        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan("OrderService.getOrdersActive");
-        String cacheKey = String.format("orders:active:%s:%d:%d", req.getSearch(), req.getPage(), req.getPageSize());
+    public Future<ApiResponsePagination<List<Order>>> getOrdersActive(FindAllOrderRequest req) {
+        TracingMetrics.TracingContext ctx = tracingMetrics.startSpan("OrderService.getOrdersActive");
+        int page = req.getPage() > 0 ? req.getPage() - 1 : 0;
+        int pageSize = req.getPageSize() > 0 ? req.getPageSize() : 10;
+        String keyword = (req.getSearch() != null && !req.getSearch().isEmpty()) ? req.getSearch() : "";
+        req.setSearch(keyword);
+        req.setPage(page);
+        req.setPageSize(pageSize);
 
-        return redisService.get(cacheKey)
-                .compose(cached -> handleCacheOrRepo(cached, cacheKey,
-                        () -> orderRepository.getOrdersActive(req.getSearch(), req.getPage(), req.getPageSize()),
-                        new TypeReference<PagedResult<Order>>() {}, tracingCtx, "get_orders_active"))
-                .recover(err -> handleReportError(tracingCtx, err));
+        return fetchPaginatedOrders(
+                req, "orders:active", page, pageSize, keyword,
+                r -> orderRepository.getOrdersActive(r.getSearch(), r.getPage(), r.getPageSize()),
+                Function.identity(), ctx, "get_orders_active", "Active orders fetched successfully");
     }
 
-    public Future<ApiResponse<Order>> getOrderById(RoutingContext ctx, Long orderId) {
-        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan("OrderService.getOrderById");
+    public Future<ApiResponsePagination<List<Order>>> getOrdersByMerchant(Long merchantId, String search, int page,
+            int pageSize) {
+        TracingMetrics.TracingContext ctx = tracingMetrics.startSpan("OrderService.getOrdersByMerchant",
+                Attributes.builder().put("merchant.id", merchantId).build());
+
+        String cachePrefix = String.format("orders:merchant:%d", merchantId);
+
+        return fetchPaginatedOrders(
+                null, cachePrefix, page, pageSize, search,
+                r -> orderRepository.getOrdersByMerchant(search, page, pageSize, merchantId),
+                Function.identity(), ctx, "get_orders_merchant", "Orders by merchant fetched successfully");
+    }
+
+    public Future<ApiResponse<Order>> getOrderById(Long orderId) {
+        TracingMetrics.TracingContext ctx = tracingMetrics.startSpan("OrderService.getOrderById",
+                Attributes.builder().put("order.id", orderId).build());
+        Span span = Span.fromContext(ctx.getContext());
+
         String cacheKey = "order:detail:" + orderId;
 
         return redisService.get(cacheKey)
-                .compose(cached -> handleCacheOrRepo(cached, cacheKey,
-                        () -> orderRepository.getOrderById(orderId).map(res -> {
-                            if (res == null) throw new CustomException("Order not found");
-                            return res;
-                        }),
-                        new TypeReference<Order>() {}, tracingCtx, "get_order_by_id"))
-                .recover(err -> handleReportError(tracingCtx, err));
+                .compose(cached -> {
+                    if (cached != null && !cached.isEmpty()) {
+                        span.setAttribute("order.cache_hit", true);
+                        try {
+                            Order order = Order.fromJson(new JsonObject(cached));
+                            tracingMetrics.completeSpanSuccess(ctx, "get_by_id", "Order fetched from cache");
+                            return Future.succeededFuture(
+                                    ApiResponse.success("Order fetched successfully (from cache)", order));
+                        } catch (Exception e) {
+                            logger.warn("Failed to parse cached order data for order {}: {}", orderId, e.getMessage());
+                            return fetchOrderFromDatabase(orderId, ctx);
+                        }
+                    }
+                    span.setAttribute("order.cache_hit", false);
+                    return fetchOrderFromDatabase(orderId, ctx);
+                })
+                .recover(err -> {
+                    logger.error("Failed to fetch order by id: {}", orderId, err);
+                    tracingMetrics.completeSpanError(ctx, "get_by_id", err.getMessage());
+                    if (err instanceof CustomException) {
+                        return Future.failedFuture(err);
+                    }
+                    return Future.succeededFuture(
+                            ApiResponse.<Order>error("Failed to fetch order: " + err.getMessage()));
+                });
     }
 
-    public Future<ApiResponse<PagedResult<Order>>> getOrdersByMerchant(RoutingContext ctx, Long merchantId, String search, int page, int pageSize) {
-        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan("OrderService.getOrdersByMerchant");
-        String cacheKey = String.format("orders:merchant:%d:%s:%d:%d", merchantId, search, page, pageSize);
-
-        return redisService.get(cacheKey)
-                .compose(cached -> handleCacheOrRepo(cached, cacheKey,
-                        () -> orderRepository.getOrdersByMerchant(search, page, pageSize, merchantId),
-                        new TypeReference<PagedResult<Order>>() {}, tracingCtx, "get_orders_merchant"))
-                .recover(err -> handleReportError(tracingCtx, err));
-    }
-
-    public Future<ApiResponse<Order>> createOrder(Long merchantId, Long cashierId,
-            Long totalPrice) {
+    public Future<ApiResponse<OrderResponse>> createOrder(CreateOrderRequest req) {
         TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan(
                 "OrderService.createOrder",
                 Attributes.builder()
-                        .put("merchant.id", merchantId)
-                        .put("cashier.id", cashierId)
+                        .put("merchant.id", req.getMerchantId())
+                        .put("cashier.id", req.getCashierId())
                         .build());
         Span span = Span.fromContext(tracingCtx.getContext());
 
-        log.info("Creating order for merchant: {} cashier: {}", merchantId, cashierId);
+        logger.info("Creating order for merchant: {} cashier: {}", req.getMerchantId(), req.getCashierId());
 
-        return merchantRepository.getMerchantById(merchantId)
+        return merchantRepository.getMerchantById(req.getMerchantId().longValue())
                 .compose(merchant -> {
                     if (merchant == null)
                         return Future.failedFuture(new CustomException("Merchant not found"));
-                    return cashierRepository.getCashierById(cashierId);
+                    return cashierRepository.getCashierById(req.getCashierId().longValue());
                 })
                 .compose(cashier -> {
-                    if (cashier == null)
+                    if (cashier == null) {
                         return Future.failedFuture(new CustomException("Cashier not found"));
-                    return orderRepository.createOrder(merchantId, cashierId, totalPrice);
+                    }
+                    return orderRepository.createOrder(
+                            new CreateOrderRecordRequest(req.getMerchantId().longValue(),
+                                    req.getCashierId().longValue(), 0));
                 })
-                .map(order -> {
-                    span.setAttribute("order.id", order.getOrderId());
-                    tracingMetrics.completeSpanSuccess(tracingCtx, "create_order", "Order created");
-                    return ApiResponse.success("Order created successfully", order);
+                .compose(order -> processOrderItems(order, req.getItems()).map(v -> order))
+                .compose(order -> orderItemRepository.calculateTotalPrice(order.getOrderId().longValue())
+                        .compose(totalPrice -> orderRepository.updateOrder(
+                                new UpdateOrderRecordRequest(order.getOrderId().longValue(), totalPrice))))
+                .map(updatedOrder -> {
+                    span.setAttribute("order.id", updatedOrder.getOrderId());
+                    tracingMetrics.completeSpanSuccess(tracingCtx, "create", "Order created successfully");
+                    return ApiResponse.success("Order created successfully", OrderResponse.from(updatedOrder));
                 })
-                .recover(err -> handleError(tracingCtx, "create_order", err));
+                .recover(err -> {
+                    logger.error("Failed to create order", err);
+                    tracingMetrics.completeSpanError(tracingCtx, "create_order", err.getMessage());
+                    if (err instanceof CustomException) {
+                        return Future.failedFuture(err);
+                    }
+                    return Future.succeededFuture(
+                            ApiResponse.<OrderResponse>error("Failed to create order: " + err.getMessage()));
+                });
     }
 
-    public Future<ApiResponse<Order>> updateOrder(Long orderId, Long totalPrice) {
+    public Future<ApiResponse<OrderResponse>> updateOrder(UpdateOrderRequest req) {
         TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan(
                 "OrderService.updateOrder",
+                Attributes.builder().put("order.id", req.getOrderId()).build());
+        Span span = Span.fromContext(tracingCtx.getContext());
+
+        logger.info("Updating order: {}", req.getOrderId());
+
+        return orderRepository.getOrderById(req.getOrderId().longValue())
+                .compose(order -> {
+                    if (order == null) {
+                        return Future.failedFuture(new CustomException("Order not found"));
+                    }
+                    return cashierRepository.getCashierById(req.getCashierId().longValue());
+                })
+                .compose(cashier -> {
+                    if (cashier == null) {
+                        return Future.failedFuture(new CustomException("Cashier not found"));
+                    }
+                    return processUpdateOrderItems(req.getOrderId().longValue(), req.getItems());
+                })
+                .compose(v -> orderItemRepository.calculateTotalPrice(req.getOrderId().longValue())
+                        .compose(totalPrice -> orderRepository.updateOrder(
+                                new UpdateOrderRecordRequest(req.getOrderId().longValue(), totalPrice))))
+                .map(updatedOrder -> {
+                    span.setAttribute("order.id", updatedOrder.getOrderId());
+                    invalidateCache(updatedOrder.getOrderId());
+                    tracingMetrics.completeSpanSuccess(tracingCtx, "update", "Order updated successfully");
+                    return ApiResponse.success("Order updated successfully", OrderResponse.from(updatedOrder));
+                })
+                .recover(err -> {
+                    logger.error("Failed to update order: {}", req.getOrderId(), err);
+                    tracingMetrics.completeSpanError(tracingCtx, "update_order", err.getMessage());
+                    if (err instanceof CustomException) {
+                        return Future.failedFuture(err);
+                    }
+                    return Future.succeededFuture(
+                            ApiResponse.<OrderResponse>error("Failed to update order: " + err.getMessage()));
+                });
+    }
+
+    public Future<ApiResponse<Order>> trashedOrder(Long orderId) {
+        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan("OrderService.trashedOrder",
                 Attributes.builder().put("order.id", orderId).build());
+
+        return orderRepository.trashedOrder(orderId)
+                .compose(order -> {
+                    if (order == null)
+                        return Future.failedFuture(new CustomException("Order not found or already trashed"));
+                    invalidateCache(orderId);
+                    tracingMetrics.completeSpanSuccess(tracingCtx, "trash_order", "Order trashed");
+                    return Future.succeededFuture(ApiResponse.success("Order moved to trash", order));
+                })
+                .recover(err -> {
+                    logger.error("Failed to trash order: {}", orderId, err);
+                    tracingMetrics.completeSpanError(tracingCtx, "trash_order", err.getMessage());
+                    if (err instanceof CustomException) {
+                        return Future.failedFuture(err);
+                    }
+                    return Future.succeededFuture(
+                            ApiResponse.<Order>error("Failed to trash order: " + err.getMessage()));
+                });
+    }
+
+    public Future<ApiResponse<Order>> restoreOrder(Long orderId) {
+        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan("OrderService.restoreOrder",
+                Attributes.builder().put("order.id", orderId).build());
+
+        return orderRepository.findByTrashed(orderId)
+                .compose(order -> {
+                    if (order == null) {
+                        return Future.failedFuture(new CustomException("Order not found or not in trash"));
+                    }
+                    return orderRepository.restoreOrder(orderId);
+                })
+                .compose(order -> {
+                    invalidateCache(orderId);
+                    tracingMetrics.completeSpanSuccess(tracingCtx, "restore_order", "Order restored");
+                    return Future.succeededFuture(ApiResponse.success("Order restored successfully", order));
+                })
+                .recover(err -> {
+                    logger.error("Failed to restore order: {}", orderId, err);
+                    tracingMetrics.completeSpanError(tracingCtx, "restore_order", err.getMessage());
+                    if (err instanceof CustomException) {
+                        return Future.failedFuture(err);
+                    }
+                    return Future.succeededFuture(
+                            ApiResponse.<Order>error("Failed to restore order: " + err.getMessage()));
+                });
+    }
+
+    public Future<ApiResponse<Void>> deleteOrderPermanently(Long orderId) {
+        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan("OrderService.deleteOrderPermanently",
+                Attributes.builder().put("order.id", orderId).build());
+
+        logger.info("Permanently deleting order: {}", orderId);
+
+        return orderRepository.findByTrashed(orderId)
+                .compose(order -> {
+                    if (order == null) {
+                        return Future.failedFuture(new CustomException("Order not found or not in trash"));
+                    }
+                    return orderRepository.deleteOrderPermanently(orderId);
+                })
+                .map(v -> {
+                    invalidateCache(orderId);
+                    logger.info("Order deleted successfully: {}", orderId);
+                    tracingMetrics.completeSpanSuccess(tracingCtx, "delete_permanent", "Order deleted permanently");
+                    return ApiResponse.<Void>success("Order deleted permanently", null);
+                })
+                .recover(err -> {
+                    logger.error("Failed to deletePermanent order: {}", orderId, err);
+                    tracingMetrics.completeSpanError(tracingCtx, "delete_permanent", err.getMessage());
+                    if (err instanceof CustomException) {
+                        return Future.failedFuture(err);
+                    }
+                    return Future.succeededFuture(
+                            ApiResponse.<Void>error("Failed to delete order: " + err.getMessage()));
+                });
+    }
+
+    public Future<ApiResponse<Integer>> restoreAllOrders() {
+        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan("OrderService.restoreAllOrders");
+        return orderRepository.restoreAllOrders()
+                .compose(count -> {
+                    if (count == 0) {
+                        return Future.failedFuture(new CustomException("No trashed orders found"));
+                    }
+                    tracingMetrics.completeSpanSuccess(tracingCtx, "restore_all", "Success");
+                    return Future.succeededFuture(ApiResponse.success("All orders restored", count));
+                })
+                .recover(err -> {
+                    logger.error("Failed to restore all orders", err);
+                    tracingMetrics.completeSpanError(tracingCtx, "restore_all", err.getMessage());
+                    if (err instanceof CustomException) {
+                        return Future.failedFuture(err);
+                    }
+                    return Future.succeededFuture(
+                            ApiResponse.<Integer>error("Failed to restore all orders: " + err.getMessage()));
+                });
+    }
+
+    public Future<ApiResponse<Integer>> deleteAllPermanentOrders() {
+        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan("OrderService.deleteAllPermanentOrders");
+        return orderRepository.deleteAllPermanentOrders()
+                .compose(count -> {
+                    if (count == 0) {
+                        return Future.failedFuture(new CustomException("No trashed orders found"));
+                    }
+                    tracingMetrics.completeSpanSuccess(tracingCtx, "delete_all", "Success");
+                    return Future.succeededFuture(ApiResponse.success("All orders deleted permanently", count));
+                })
+                .recover(err -> {
+                    logger.error("Failed to permanently delete all orders", err);
+                    tracingMetrics.completeSpanError(tracingCtx, "delete_all", err.getMessage());
+                    if (err instanceof CustomException) {
+                        return Future.failedFuture(err);
+                    }
+                    return Future.succeededFuture(
+                            ApiResponse.<Integer>error("Failed to delete all orders: " + err.getMessage()));
+                });
+    }
+
+    public Future<ApiResponse<List<OrderMonthTotalRevenue>>> getMonthlyTotalRevenue(MonthTotalRevenue req) {
+        String cacheKey = String.format("order:report:monthly_revenue:%d:%d", req.getYear(), req.getMonth());
+        return fetchStats(cacheKey, orderRepository.getMonthlyTotalRevenue(req), Function.identity(),
+                OrderMonthTotalRevenue.class, "report_monthly_revenue", "Monthly total revenue fetched successfully");
+    }
+
+    public Future<ApiResponse<List<OrderYearTotalRevenue>>> getYearlyTotalRevenue(Integer year) {
+        String cacheKey = String.format("order:report:yearly_revenue:%d", year);
+        return fetchStats(cacheKey, orderRepository.getYearlyTotalRevenue(year), Function.identity(),
+                OrderYearTotalRevenue.class, "report_yearly_revenue", "Yearly total revenue fetched successfully");
+    }
+
+    public Future<ApiResponse<List<OrderMonth>>> getMonthlyOrder(Integer year) {
+        String cacheKey = String.format("order:report:monthly_order:%d", year);
+        return fetchStats(cacheKey, orderRepository.getMonthlyOrder(year), Function.identity(), OrderMonth.class,
+                "report_monthly_order", "Monthly orders fetched successfully");
+    }
+
+    public Future<ApiResponse<List<OrderYear>>> getYearlyOrder(Integer year) {
+        String cacheKey = String.format("order:report:yearly_order:%d", year);
+        return fetchStats(cacheKey, orderRepository.getYearlyOrder(year), Function.identity(), OrderYear.class,
+                "report_yearly_order", "Yearly orders fetched successfully");
+    }
+
+    public Future<ApiResponse<List<OrderMonthTotalRevenue>>> getMonthlyTotalRevenueByMerchant(
+            MonthTotalRevenueMerchantRequest req) {
+        String cacheKey = String.format("order:report:monthly_revenue_merchant:%d:%d:%d", req.getMerchantId(),
+                req.getYear(), req.getMonth());
+        return fetchStats(cacheKey, orderRepository.getMonthlyTotalRevenueByMerchant(req), Function.identity(),
+                OrderMonthTotalRevenue.class, "report_monthly_revenue_merchant",
+                "Monthly total revenue by merchant fetched successfully");
+    }
+
+    public Future<ApiResponse<List<OrderYearTotalRevenue>>> getYearlyTotalRevenueByMerchant(
+            YearTotalRevenueMerchantRequest req) {
+        String cacheKey = String.format("order:report:yearly_revenue_merchant:%d:%d", req.getMerchantId(),
+                req.getYear());
+        return fetchStats(cacheKey, orderRepository.getYearlyTotalRevenueByMerchant(req), Function.identity(),
+                OrderYearTotalRevenue.class, "report_yearly_revenue_merchant",
+                "Yearly total revenue by merchant fetched successfully");
+    }
+
+    public Future<ApiResponse<List<OrderMonth>>> getMonthlyOrderByMerchant(MonthOrderMerchantRequest req) {
+        String cacheKey = String.format("order:report:monthly_order_merchant:%d:%d", req.getMerchantId(),
+                req.getYear());
+        return fetchStats(cacheKey, orderRepository.getMonthlyOrderByMerchant(req), Function.identity(),
+                OrderMonth.class, "report_monthly_order_merchant", "Monthly orders by merchant fetched successfully");
+    }
+
+    public Future<ApiResponse<List<OrderYear>>> getYearlyOrderByMerchant(YearOrderMerchantRequest req) {
+        String cacheKey = String.format("order:report:yearly_order_merchant:%d:%d", req.getMerchantId(),
+                req.getYear());
+        return fetchStats(cacheKey, orderRepository.getYearlyOrderByMerchant(req), Function.identity(),
+                OrderYear.class, "report_yearly_order_merchant", "Yearly orders by merchant fetched successfully");
+    }
+
+    private <T, R> Future<ApiResponse<List<R>>> fetchStats(String cacheKey, Future<List<T>> dbFuture,
+            Function<T, R> mapper, Class<R> responseType, String spanName, String successMessage) {
+
+        TracingMetrics.TracingContext tracingContext = tracingMetrics.startSpan("OrderStatsService." + spanName);
+
+        return redisService.getJsonList(cacheKey, responseType)
+                .compose(cached -> {
+                    if (cached != null && !cached.isEmpty()) {
+                        tracingMetrics.completeSpanSuccess(tracingContext, spanName, "Data from cache");
+                        return Future.succeededFuture(cached);
+                    }
+                    return dbFuture.map(dbResults -> {
+                        List<R> responseList = dbResults.stream().map(mapper).collect(Collectors.toList());
+                        redisService.setJsonList(cacheKey, responseList, Duration.ofHours(6))
+                                .onFailure(err -> tracingMetrics.completeSpanError(tracingContext, spanName,
+                                        "Data fetched but cache failed"))
+                                .onSuccess(v -> tracingMetrics.completeSpanSuccess(tracingContext, spanName,
+                                        "Data fetched from DB and cached"));
+                        return responseList;
+                    });
+                })
+                .map(results -> ApiResponse.success(successMessage, results))
+                .recover(
+                        err -> Future.succeededFuture(ApiResponse.error("Failed to fetch stats: " + err.getMessage())));
+    }
+
+    private <T, R> Future<ApiResponsePagination<List<R>>> fetchPaginatedOrders(T req, String cachePrefix, int page,
+            int pageSize, String keyword, Function<T, Future<PagedResult<Order>>> dbFetcher,
+            Function<Order, R> responseMapper, TracingMetrics.TracingContext tracingContext, String spanName,
+            String successMessage) {
+
+        Span span = Span.fromContext(tracingContext.getContext());
+        String cacheKey = String.format("%s:page:%d:size:%d:search:%s", cachePrefix, page, pageSize, keyword);
+
+        return redisService.get(cacheKey)
+                .compose(cached -> {
+                    if (cached != null && !cached.isEmpty()) {
+                        span.setAttribute("orders.cache_hit", true);
+                        try {
+                            JsonObject json = new JsonObject(cached);
+                            int totalRecords = json.getInteger("totalRecords");
+                            int totalPages = (int) Math.ceil((double) totalRecords / pageSize);
+
+                            List<R> data = json.getJsonArray("data").stream()
+                                    .map(obj -> responseMapper.apply(Order.fromJson((JsonObject) obj)))
+                                    .toList();
+
+                            tracingMetrics.completeSpanSuccess(tracingContext, spanName, "Orders fetched from cache");
+                            return Future.succeededFuture(new ApiResponsePagination<>("success", successMessage, data,
+                                    new PaginationMeta(page + 1, pageSize, totalPages, totalRecords)));
+                        } catch (Exception e) {
+                            logger.warn("Failed to parse cached paginated orders: {}", e.getMessage());
+                        }
+                    }
+
+                    span.setAttribute("orders.cache_hit", false);
+                    return dbFetcher.apply(req)
+                            .map(result -> {
+                                JsonObject jsonToCache = new JsonObject()
+                                        .put("totalRecords", result.getTotalRecords())
+                                        .put("data", new JsonArray(
+                                                result.getData().stream().map(Order::toJson).toList()));
+
+                                redisService.set(cacheKey, jsonToCache.encode(), Duration.ofMinutes(5))
+                                        .onFailure(err -> logger.warn("Failed to cache {}: {}", cachePrefix,
+                                                err.getMessage()));
+
+                                span.setAttribute("orders.count", result.getData().size());
+                                span.setAttribute("orders.total_records", result.getTotalRecords());
+                                tracingMetrics.completeSpanSuccess(tracingContext, spanName, successMessage);
+
+                                return mapPagination(result, page, pageSize, responseMapper, successMessage);
+                            });
+                })
+                .recover(throwable -> {
+                    logger.error("Failed to fetch paginated orders for {}", cachePrefix, throwable);
+                    tracingMetrics.completeSpanError(tracingContext, spanName, throwable.getMessage());
+                    return Future.succeededFuture(
+                            ApiResponsePagination.<List<R>>error("Failed to fetch orders: " + throwable.getMessage()));
+                });
+    }
+
+    private Future<ApiResponse<Order>> fetchOrderFromDatabase(Long orderId,
+            TracingMetrics.TracingContext tracingContext) {
+        Span span = Span.fromContext(tracingContext.getContext());
 
         return orderRepository.getOrderById(orderId)
                 .compose(order -> {
                     if (order == null)
                         return Future.failedFuture(new CustomException("Order not found"));
-                    return orderRepository.updateOrder(orderId, totalPrice);
-                })
-                .map(updated -> {
-                    invalidateCache(orderId);
-                    tracingMetrics.completeSpanSuccess(tracingCtx, "update_order", "Order updated");
-                    return ApiResponse.success("Order updated successfully", updated);
-                })
-                .recover(err -> handleError(tracingCtx, "update_order", err));
-    }
 
-    public Future<ApiResponse<Order>> trashedOrder(Long orderId) {
-        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan(
-                "OrderService.trashedOrder",
-                Attributes.builder().put("order.id", orderId).build());
+                    span.setAttribute("order.id", order.getOrderId());
 
-        return orderRepository.trashedOrder(orderId)
-                .map(order -> {
-                    if (order == null)
-                        throw new CustomException("Order not found or already trashed");
-                    invalidateCache(orderId);
-                    tracingMetrics.completeSpanSuccess(tracingCtx, "trash_order", "Order trashed");
-                    return ApiResponse.success("Order moved to trash", order);
-                })
-                .recover(err -> handleError(tracingCtx, "trash_order", err));
-    }
+                    redisService.setJson("order:detail:" + orderId, order.toJson(), Duration.ofMinutes(30))
+                            .onFailure(err -> logger.warn("Failed to cache order {}: {}", orderId, err.getMessage()));
 
-    public Future<ApiResponse<Order>> restoreOrder(Long orderId) {
-        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan(
-                "OrderService.restoreOrder",
-                Attributes.builder().put("order.id", orderId).build());
-
-        return orderRepository.restoreOrder(orderId)
-                .map(order -> {
-                    if (order == null)
-                        throw new CustomException("Order not found or not in trash");
-                    invalidateCache(orderId);
-                    tracingMetrics.completeSpanSuccess(tracingCtx, "restore_order", "Order restored");
-                    return ApiResponse.success("Order restored successfully", order);
-                })
-                .recover(err -> handleError(tracingCtx, "restore_order", err));
-    }
-
-    public Future<ApiResponse<Void>> deleteOrderPermanently(Long orderId) {
-        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan(
-                "OrderService.deleteOrderPermanently",
-                Attributes.builder().put("order.id", orderId).build());
-
-        log.info("Permanently deleting order: {}", orderId);
-
-        return orderRepository.deleteOrderPermanently(orderId)
-                .map(v -> {
-                    invalidateCache(orderId);
-                    log.info("Order deleted successfully: {}", orderId);
-                    tracingMetrics.completeSpanSuccess(tracingCtx, "delete_permanent", "Order deleted permanently");
-                    return ApiResponse.<Void>success("Order deleted permanently", null);
-                })
-                .recover(throwable -> {
-                    log.error("Failed to deletePermanent order: {}", orderId, throwable);
-                    tracingMetrics.completeSpanError(tracingCtx, "delete_permanent", throwable.getMessage());
-                    return Future.succeededFuture(
-                            ApiResponse.<Void>error("Failed to delete order: " + throwable.getMessage()));
+                    return Future.succeededFuture(ApiResponse.success("Order fetched successfully", order));
                 });
     }
 
-    public Future<ApiResponse<Integer>> restoreAllOrders(RoutingContext ctx) {
-        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan("OrderService.restoreAllOrders");
-        return orderRepository.restoreAllOrders()
-                .map(count -> {
-                    tracingMetrics.completeSpanSuccess(tracingCtx, "restore_all", "Success");
-                    return ApiResponse.success("All orders restored", count);
-                })
-                .recover(err -> handleError(tracingCtx, "restore_all", err));
-    }
+    private <R> ApiResponsePagination<List<R>> mapPagination(PagedResult<Order> result, int page, int pageSize,
+            Function<Order, R> mapper, String message) {
+        int totalRecords = result.getTotalRecords();
+        int totalPages = (int) Math.ceil((double) totalRecords / pageSize);
+        List<R> data = result.getData().stream().map(mapper).toList();
 
-    public Future<ApiResponse<Integer>> deleteAllPermanentOrders(RoutingContext ctx) {
-        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan("OrderService.deleteAllPermanentOrders");
-        return orderRepository.deleteAllPermanentOrders()
-                .map(count -> {
-                    tracingMetrics.completeSpanSuccess(tracingCtx, "delete_all", "Success");
-                    return ApiResponse.success("All orders deleted permanently", count);
-                })
-                .recover(err -> handleError(tracingCtx, "delete_all", err));
-    }
-
-    public Future<ApiResponse<List<OrderMonthTotalRevenue>>> getMonthlyTotalRevenue(MonthTotalRevenue req) {
-        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan("OrderService.getMonthlyTotalRevenue");
-        String cacheKey = String.format("order:report:monthly_revenue:%d:%d", req.getYear(), req.getMonth());
-
-        return redisService.get(cacheKey)
-                .compose(cached -> handleCacheOrRepo(cached, cacheKey,
-                        () -> orderRepository.getMonthlyTotalRevenue(req),
-                        new TypeReference<List<OrderMonthTotalRevenue>>() {
-                        }, tracingCtx, "report_monthly_revenue"))
-                .recover(err -> handleReportError(tracingCtx, err));
-    }
-
-    public Future<ApiResponse<List<OrderYearTotalRevenue>>> getYearlyTotalRevenue(Integer year) {
-        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan("OrderService.getYearlyTotalRevenue");
-        String cacheKey = String.format("order:report:yearly_revenue:%d", year);
-
-        return redisService.get(cacheKey)
-                .compose(cached -> handleCacheOrRepo(cached, cacheKey,
-                        () -> orderRepository.getYearlyTotalRevenue(year),
-                        new TypeReference<List<OrderYearTotalRevenue>>() {
-                        }, tracingCtx, "report_yearly_revenue"))
-                .recover(err -> handleReportError(tracingCtx, err));
-    }
-
-    public Future<ApiResponse<List<OrderMonth>>> getMonthlyOrder(Integer year) {
-        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan("OrderService.getMonthlyOrder");
-        String cacheKey = String.format("order:report:monthly_order:%d", year);
-
-        return redisService.get(cacheKey)
-                .compose(cached -> handleCacheOrRepo(cached, cacheKey,
-                        () -> orderRepository.getMonthlyOrder(year),
-                        new TypeReference<List<OrderMonth>>() {
-                        }, tracingCtx, "report_monthly_order"))
-                .recover(err -> handleReportError(tracingCtx, err));
-    }
-
-    public Future<ApiResponse<List<OrderYear>>> getYearlyOrder(Integer year) {
-        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan("OrderService.getYearlyOrder");
-        String cacheKey = String.format("order:report:yearly_order:%d", year);
-
-        return redisService.get(cacheKey)
-                .compose(cached -> handleCacheOrRepo(cached, cacheKey,
-                        () -> orderRepository.getYearlyOrder(year),
-                        new TypeReference<List<OrderYear>>() {
-                        }, tracingCtx, "report_yearly_order"))
-                .recover(err -> handleReportError(tracingCtx, err));
-    }
-
-    public Future<ApiResponse<List<OrderMonthTotalRevenue>>> getMonthlyTotalRevenueByMerchant(
-            MonthTotalRevenueMerchantRequest req) {
-        TracingMetrics.TracingContext tracingCtx = tracingMetrics
-                .startSpan("OrderService.getMonthlyTotalRevenueByMerchant");
-        String cacheKey = String.format("order:report:monthly_revenue_merchant:%d:%d:%d", req.getMerchantId(),
-                req.getYear(), req.getMonth());
-
-        return redisService.get(cacheKey)
-                .compose(cached -> handleCacheOrRepo(cached, cacheKey,
-                        () -> orderRepository.getMonthlyTotalRevenueByMerchant(req),
-                        new TypeReference<List<OrderMonthTotalRevenue>>() {
-                        }, tracingCtx, "report"))
-                .recover(err -> handleReportError(tracingCtx, err));
-    }
-
-    public Future<ApiResponse<List<OrderYearTotalRevenue>>> getYearlyTotalRevenueByMerchant(
-            YearTotalRevenueMerchantRequest req) {
-        TracingMetrics.TracingContext tracingCtx = tracingMetrics
-                .startSpan("OrderService.getYearlyTotalRevenueByMerchant");
-        String cacheKey = String.format("order:report:yearly_revenue_merchant:%d:%d", req.getMerchantId(),
-                req.getYear());
-
-        return redisService.get(cacheKey)
-                .compose(cached -> handleCacheOrRepo(cached, cacheKey,
-                        () -> orderRepository.getYearlyTotalRevenueByMerchant(req),
-                        new TypeReference<List<OrderYearTotalRevenue>>() {
-                        }, tracingCtx, "report"))
-                .recover(err -> handleReportError(tracingCtx, err));
-    }
-
-    public Future<ApiResponse<List<OrderMonth>>> getMonthlyOrderByMerchant(MonthOrderMerchantRequest req) {
-        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan("OrderService.getMonthlyOrderByMerchant");
-        String cacheKey = String.format("order:report:monthly_order_merchant:%d:%d", req.getMerchantId(),
-                req.getYear());
-
-        return redisService.get(cacheKey)
-                .compose(cached -> handleCacheOrRepo(cached, cacheKey,
-                        () -> orderRepository.getMonthlyOrderByMerchant(req),
-                        new TypeReference<List<OrderMonth>>() {
-                        }, tracingCtx, "report"))
-                .recover(err -> handleReportError(tracingCtx, err));
-    }
-
-    public Future<ApiResponse<List<OrderYear>>> getYearlyOrderByMerchant(YearOrderMerchantRequest req) {
-        TracingMetrics.TracingContext tracingCtx = tracingMetrics.startSpan("OrderService.getYearlyOrderByMerchant");
-        String cacheKey = String.format("order:report:yearly_order_merchant:%d:%d", req.getMerchantId(), req.getYear());
-
-        return redisService.get(cacheKey)
-                .compose(cached -> handleCacheOrRepo(cached, cacheKey,
-                        () -> orderRepository.getYearlyOrderByMerchant(req),
-                        new TypeReference<List<OrderYear>>() {
-                        }, tracingCtx, "report"))
-                .recover(err -> handleReportError(tracingCtx, err));
-    }
-
-    private <T> Future<ApiResponse<T>> handleCacheOrRepo(String cached, String cacheKey,
-            java.util.concurrent.Callable<Future<T>> repoCall, TypeReference<T> typeRef,
-            TracingMetrics.TracingContext tracingCtx, String operation) {
-        if (cached != null) {
-            try {
-                T data = objectMapper.readValue(cached, typeRef);
-                return Future.succeededFuture(ApiResponse.success("Success", data));
-            } catch (Exception e) {
-                log.warn("Cache parse error", e);
-            }
-        }
-        try {
-            return repoCall.call().map(res -> {
-                redisService.set(cacheKey, Json.encode(res), Duration.ofMinutes(30));
-                tracingMetrics.completeSpanSuccess(tracingCtx, operation, "Success");
-                return ApiResponse.success("Success", res);
-            });
-        } catch (Exception e) {
-            return Future.failedFuture(e);
-        }
-    }
-
-    private <T> Future<ApiResponse<T>> handleReportError(TracingMetrics.TracingContext ctx, Throwable err) {
-        log.error("Error in cashier report: {}", err.getMessage(), err);
-        tracingMetrics.completeSpanError(ctx, "report", err.getMessage());
-        return Future.succeededFuture(ApiResponse.<T>error("Failed to generate report: " + err.getMessage()));
+        return new ApiResponsePagination<>("success", message, data,
+                new PaginationMeta(page + 1, pageSize, totalPages, totalRecords));
     }
 
     private void invalidateCache(Long orderId) {
         if (orderId != null) {
-            redisService.delete("order:detail:" + orderId);
+            redisService.delete("order:detail:" + orderId)
+                    .onSuccess(deleted -> {
+                        if (deleted > 0)
+                            logger.debug("Cache order:{} invalidated successfully", orderId);
+                    })
+                    .onFailure(err -> logger.warn("Failed to invalidate cache for order {}: {}", orderId,
+                            err.getMessage()));
         }
-        redisService.delete("orders:list:");
+        redisService.delete("orders:list:")
+                .onFailure(err -> logger.warn("Failed to invalidate list cache: {}", err.getMessage()));
     }
 
-    private <T> Future<T> handleError(TracingMetrics.TracingContext ctx, String operation, Throwable err) {
-        log.error("Error in {}: {}", operation, err.getMessage(), err);
-        tracingMetrics.completeSpanError(ctx, operation, err.getMessage());
-        return Future.failedFuture(err);
+    private Future<Void> processOrderItems(Order order, List<CreateOrderItemRequest> items) {
+        Future<Void> future = Future.succeededFuture();
+        for (CreateOrderItemRequest item : items) {
+            future = future.compose(v -> createAndProcessItem(order.getOrderId(), item));
+        }
+        return future;
+    }
+
+    private Future<Void> createAndProcessItem(Long orderId, CreateOrderItemRequest item) {
+        return productRepository.getProductById(item.getProductId())
+                .compose(product -> {
+                    if (product == null) {
+                        return Future.failedFuture(new CustomException("Product not found"));
+                    }
+                    if (product.getCountInStock() < item.getQuantity()) {
+                        return Future.failedFuture(new CustomException("Insufficient product stock"));
+                    }
+
+                    return orderItemRepository.createOrderItem(
+                            new CreateOrderItemRecordRequest(
+                                    orderId,
+                                    item.getProductId(),
+                                    item.getQuantity(),
+                                    product.getPrice()))
+                            .compose(orderItem -> {
+                                int newStock = product.getCountInStock() - item.getQuantity();
+                                return productRepository.updateProductCountStock(product.getProductId(), newStock);
+                            })
+                            .mapEmpty();
+                });
+    }
+
+    private Future<Void> processUpdateOrderItems(Long orderId, List<UpdateOrderItemRequest> items) {
+        Future<Void> future = Future.succeededFuture();
+        for (UpdateOrderItemRequest item : items) {
+            future = future.compose(v -> updateOrCreateItem(orderId, item));
+        }
+        return future;
+    }
+
+    private Future<Void> updateOrCreateItem(Long orderId, UpdateOrderItemRequest item) {
+        return productRepository.getProductById(item.getProductId())
+                .compose(product -> {
+                    if (product == null) {
+                        return Future.failedFuture(new CustomException("Product not found"));
+                    }
+
+                    if (item.getOrderItemId() > 0) {
+                        return orderItemRepository.updateOrderItem(
+                                new UpdateOrderItemRecordRequest(
+                                        item.getOrderItemId(),
+                                        item.getOrderItemId(),
+                                        item.getProductId(),
+                                        item.getQuantity(),
+                                        product.getPrice()))
+                                .mapEmpty();
+                    } else {
+                        if (product.getCountInStock() < item.getQuantity()) {
+                            return Future.failedFuture(new CustomException("Insufficient product stock"));
+                        }
+
+                        return orderItemRepository.createOrderItem(
+                                new CreateOrderItemRecordRequest(
+                                        orderId,
+                                        item.getProductId(),
+                                        item.getQuantity(),
+                                        product.getPrice()))
+                                .compose(v -> {
+                                    int newStock = product.getCountInStock() - item.getQuantity();
+                                    return productRepository.updateProductCountStock(product.getProductId(), newStock);
+                                })
+                                .mapEmpty();
+                    }
+                });
     }
 }

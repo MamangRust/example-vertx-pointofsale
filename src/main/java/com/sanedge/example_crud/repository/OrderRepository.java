@@ -6,9 +6,11 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.sanedge.example_crud.domain.requests.order.CreateOrderRecordRequest;
 import com.sanedge.example_crud.domain.requests.order.MonthOrderMerchantRequest;
 import com.sanedge.example_crud.domain.requests.order.MonthTotalRevenue;
 import com.sanedge.example_crud.domain.requests.order.MonthTotalRevenueMerchantRequest;
+import com.sanedge.example_crud.domain.requests.order.UpdateOrderRecordRequest;
 import com.sanedge.example_crud.domain.requests.order.YearOrderMerchantRequest;
 import com.sanedge.example_crud.domain.requests.order.YearTotalRevenueMerchantRequest;
 import com.sanedge.example_crud.domain.response.api.PagedResult;
@@ -156,7 +158,7 @@ public class OrderRepository {
                 .map(rows -> rows.iterator().hasNext() ? Order.fromRow(rows.iterator().next()) : null);
     }
 
-    public Future<Order> createOrder(Long merchantId, Long cashierId, Long totalPrice) {
+    public Future<Order> createOrder(CreateOrderRecordRequest req) {
         return client
                 .preparedQuery("""
                         INSERT INTO
@@ -174,11 +176,11 @@ public class OrderRepository {
                             created_at,
                             updated_at;
                         """)
-                .execute(Tuple.of(merchantId, cashierId, totalPrice))
+                .execute(Tuple.of(req.getMerchantId(), req.getCashierId(), req.getTotalPrice()))
                 .map(rows -> Order.fromRow(rows.iterator().next()));
     }
 
-    public Future<Order> updateOrder(Long orderId, Long totalPrice) {
+    public Future<Order> updateOrder(UpdateOrderRecordRequest req) {
         return client
                 .preparedQuery("""
                         UPDATE orders
@@ -196,7 +198,7 @@ public class OrderRepository {
                             created_at,
                             updated_at;
                         """)
-                .execute(Tuple.of(orderId, totalPrice))
+                .execute(Tuple.of(req.getOrderId(), req.getTotalPrice()))
                 .map(rows -> rows.iterator().hasNext() ? Order.fromRow(rows.iterator().next()) : null);
     }
 
@@ -249,6 +251,26 @@ public class OrderRepository {
                 .preparedQuery("DELETE FROM orders WHERE order_id = $1 AND deleted_at IS NOT NULL")
                 .execute(Tuple.of(orderId))
                 .mapEmpty();
+    }
+
+    public Future<Order> findByTrashed(Long orderId) {
+        return client
+                .preparedQuery("""
+                        SELECT
+                            order_id,
+                            merchant_id,
+                            cashier_id,
+                            total_price,
+                            created_at,
+                            updated_at,
+                            deleted_at
+                        FROM orders
+                        WHERE
+                            order_id = $1
+                            AND deleted_at IS NOT NULL;
+                        """)
+                .execute(Tuple.of(orderId))
+                .map(rows -> rows.iterator().hasNext() ? Order.fromRow(rows.iterator().next()) : null);
     }
 
     public Future<Integer> restoreAllOrders() {

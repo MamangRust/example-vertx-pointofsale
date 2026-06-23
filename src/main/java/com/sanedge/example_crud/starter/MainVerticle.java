@@ -62,7 +62,8 @@ import io.vertx.sqlclient.PoolOptions;
 import io.vertx.tracing.opentelemetry.OpenTelemetryOptions;
 
 public class MainVerticle extends AbstractVerticle {
-  private static final Logger logger = LoggerFactory.getLogger(MainVerticle.class.getName());
+  private static final Logger logger = LoggerFactory.getLogger(MainVerticle.class);
+  private static final int HTTP_PORT = 8888;
 
   private OpenTelemetry telemetry;
 
@@ -71,6 +72,162 @@ public class MainVerticle extends AbstractVerticle {
 
   public MainVerticle(OpenTelemetry telemetry) {
     this.telemetry = telemetry;
+  }
+
+  public static void main(String[] args) {
+    JsonObject config = new JsonObject()
+        .put("service.name", System.getenv().getOrDefault("OTEL_SERVICE_NAME", "app"))
+        .put("service.version", System.getenv().getOrDefault("OTEL_SERVICE_VERSION", "1.0.0"))
+        .put("otel.exporter.otlp.endpoint",
+            System.getenv().getOrDefault("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317"))
+        .put("otel.jfr.enabled", Boolean.parseBoolean(System.getenv().getOrDefault("OTEL_JFR_ENABLED", "true")));
+
+    TelemetryConfig telemetryConfig = new TelemetryConfig(config);
+    OpenTelemetry telemetry = telemetryConfig.initialize();
+
+    VertxOptions options = new VertxOptions()
+        .setTracingOptions(new OpenTelemetryOptions(telemetry));
+
+    Vertx vertx = Vertx.vertx(options);
+
+    vertx.deployVerticle(new MainVerticle(telemetry))
+        .onSuccess(id -> {
+          logger.info("✅ MainVerticle deployed successfully with ID: {}", id);
+          logger.info("📊 OpenTelemetry initialized - traces will be sent to: {}",
+              config.getString("otel.exporter.otlp.endpoint"));
+          logger.info("🔍 Service name: {}", config.getString("service.name"));
+          logger.info("🌍 Deployment environment: {}", System.getenv().getOrDefault("DEPLOYMENT_ENV", "local"));
+        })
+        .onFailure(err -> {
+          logger.error("❌ Failed to deploy MainVerticle: {}", err.getMessage());
+          err.printStackTrace();
+          System.exit(1);
+        });
+
+    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+      logger.info("Shutting down application...");
+      vertx.close()
+          .onSuccess(v -> {
+            logger.info("Vertx shutdown complete");
+            telemetryConfig.shutdown();
+          })
+          .onFailure(err -> {
+            logger.error("Error during Vertx shutdown", err);
+            telemetryConfig.shutdown();
+          });
+    }));
+  }
+
+  @Override
+  public void start() {
+    initializeTelemetryIfMissing();
+
+    PgConnectOptions connectOptions = setupDatabaseOptions();
+    FlywayConfig.runMigrations(connectOptions);
+
+    JWTAuth jwtProvider = JwtConfig.createProvider(vertx);
+
+    PoolOptions poolOptions = new PoolOptions().setMaxSize(5);
+    Pool client = Pool.pool(vertx, connectOptions, poolOptions);
+
+    RedisAPI redisAPI = RedisConfig.createClient(vertx);
+    RedisService redisService = new RedisService(redisAPI, telemetry);
+
+    redisService.ping()
+        .onSuccess(response -> logger.info("✅ Redis connected successfully: {}", response))
+        .onFailure(err -> logger.error("❌ Failed to connect to Redis: {}", err.getMessage()));
+
+    DatabaseSeeder.runSeeder(client, true);
+
+    TracingMetrics tracingMetrics = new TracingMetrics(telemetry, "example_vert.x");
+
+    HandlerContainer handlers = initializeHandlers(client, redisService, jwtProvider, tracingMetrics);
+
+    Router router = RouteRegistrar.register(
+        vertx, jwtProvider,
+        handlers.authHandler, handlers.userHandler, handlers.roleHandler, handlers.cashierHandler,
+        handlers.categoryHandler, handlers.merchantHandler, handlers.orderHandler, handlers.orderItemHandler,
+        handlers.productHandler, handlers.transactionHandler);
+
+    setupGlobalErrorHandler(router);
+
+    vertx.createHttpServer()
+        .requestHandler(router)
+        .listen(HTTP_PORT)
+        .onSuccess(s -> logger.info("✅ Server running on http://localhost:{}", HTTP_PORT));
+  }
+
+  private void initializeTelemetryIfMissing() {
+    if (telemetry == null) {
+      logger.warn("Telemetry not initialized in constructor, creating new instance");
+      JsonObject config = new JsonObject()
+          .put("service.name", System.getenv().getOrDefault("OTEL_SERVICE_NAME", "app"))
+          .put("service.version", System.getenv().getOrDefault("OTEL_SERVICE_VERSION", "1.0.0"))
+          .put("otel.exporter.otlp.endpoint",
+              System.getenv().getOrDefault("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317"))
+          .put("otel.jfr.enabled",
+              Boolean.parseBoolean(System.getenv().getOrDefault("OTEL_JFR_ENABLED", "true")));
+
+      this.telemetry = new TelemetryConfig(config).initialize();
+    }
+  }
+
+  private PgConnectOptions setupDatabaseOptions() {
+    return new PgConnectOptions()
+        .setPort(5432)
+        .setHost("app-db")
+        .setDatabase("example_vertx_crud")
+        .setUser("postgress")
+        .setPassword("password");
+  }
+
+  private HandlerContainer initializeHandlers(Pool client, RedisService redisService, JWTAuth jwtProvider,
+      TracingMetrics tracingMetrics) {
+    UserRepository userRepo = new UserRepository(client);
+    RoleRepository roleRepo = new RoleRepository(client);
+    RefreshTokenRepository refreshTokenRepository = new RefreshTokenRepository(client);
+    UserRoleRepository userRoleRepo = new UserRoleRepository(client);
+    CashierRepository cashierRepository = new CashierRepository(client);
+    CategoryRepository categoryRepository = new CategoryRepository(client);
+    MerchantRepository merchantRepository = new MerchantRepository(client);
+    ProductRepository productRepository = new ProductRepository(client);
+    OrderRepository orderRepository = new OrderRepository(client);
+    OrderItemRepository orderItemRepository = new OrderItemRepository(client);
+    TransactionRepository transactionRepository = new TransactionRepository(client);
+
+    UserService userService = new UserService(userRepo, roleRepo, userRoleRepo, redisService, tracingMetrics);
+    AuthService authService = new AuthService(userRepo, refreshTokenRepository, redisService, jwtProvider,
+        tracingMetrics);
+    RoleService roleService = new RoleService(roleRepo, redisService, tracingMetrics);
+    CategoryService categoryService = new CategoryService(categoryRepository, redisService, tracingMetrics);
+    CashierService cashierService = new CashierService(cashierRepository, merchantRepository, userRepo, redisService,
+        tracingMetrics);
+    MerchantService merchantService = new MerchantService(merchantRepository, userRepo, redisService, tracingMetrics);
+    ProductService productService = new ProductService(productRepository, redisService, tracingMetrics);
+    OrderService orderService = new OrderService(orderRepository, productRepository, merchantRepository,
+        orderItemRepository, cashierRepository, redisService, tracingMetrics);
+    OrderItemService orderItemService = new OrderItemService(orderItemRepository, redisService, tracingMetrics);
+    TransactionService transactionService = new TransactionService(transactionRepository, merchantRepository,
+        orderRepository, orderItemRepository, redisService, tracingMetrics);
+
+    return new HandlerContainer(
+        new AuthHandler(authService, userService),
+        new UserHandler(userService),
+        new RoleHandler(roleService),
+        new CashierHandler(cashierService),
+        new CategoryHandler(categoryService),
+        new MerchantHandler(merchantService),
+        new OrderHandler(orderService),
+        new OrderItemHandler(orderItemService),
+        new ProductHandler(productService),
+        new TransactionHandler(transactionService));
+  }
+
+  private record HandlerContainer(
+      AuthHandler authHandler, UserHandler userHandler, RoleHandler roleHandler,
+      CashierHandler cashierHandler, CategoryHandler categoryHandler, MerchantHandler merchantHandler,
+      OrderHandler orderHandler, OrderItemHandler orderItemHandler, ProductHandler productHandler,
+      TransactionHandler transactionHandler) {
   }
 
   private void setupGlobalErrorHandler(Router router) {
@@ -82,6 +239,7 @@ public class MainVerticle extends AbstractVerticle {
     ApiResponse<Object> response = ApiResponse.error("Resource not found");
     ctx.response()
         .setStatusCode(404)
+        .putHeader("Content-Type", "application/json")
         .end(Json.encodePrettily(response));
   }
 
@@ -104,150 +262,5 @@ public class MainVerticle extends AbstractVerticle {
     res.setStatusCode(statusCode);
     res.putHeader("Content-Type", "application/json");
     res.end(Json.encodePrettily(response));
-  }
-
-  public static void main(String[] args) {
-    JsonObject config = new JsonObject()
-        .put("service.name", System.getenv().getOrDefault("OTEL_SERVICE_NAME", "app"))
-        .put("service.version", System.getenv().getOrDefault("OTEL_SERVICE_VERSION", "1.0.0"))
-        .put("otel.exporter.otlp.endpoint",
-            System.getenv().getOrDefault("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317"))
-        .put("otel.jfr.enabled", Boolean.parseBoolean(System.getenv().getOrDefault("OTEL_JFR_ENABLED", "true")));
-
-    TelemetryConfig telemetryConfig = new TelemetryConfig(config);
-    OpenTelemetry telemetry = telemetryConfig.initialize();
-
-    VertxOptions options = new VertxOptions()
-        .setTracingOptions(new OpenTelemetryOptions(telemetry));
-
-    Vertx vertx = Vertx.vertx(options);
-
-    vertx.deployVerticle(new MainVerticle(telemetry))
-        .onSuccess(id -> {
-          logger.info("✅ MainVerticle deployed successfully with ID: " + id);
-          logger.info("📊 OpenTelemetry initialized - traces will be sent to: " +
-              config.getString("otel.exporter.otlp.endpoint"));
-          logger.info("🔍 Service name: " + config.getString("service.name"));
-          logger.info("🌍 Deployment environment: " +
-              System.getenv().getOrDefault("DEPLOYMENT_ENV", "local"));
-        })
-        .onFailure(err -> {
-          logger.error("❌ Failed to deploy MainVerticle: " + err.getMessage());
-          err.printStackTrace();
-          System.exit(1);
-        });
-
-    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-      logger.info("Shutting down application...");
-
-      vertx.close()
-          .onSuccess(v -> {
-            logger.info("Vertx shutdown complete");
-            telemetryConfig.shutdown();
-          })
-          .onFailure(err -> {
-            logger.error("Error during Vertx shutdown", err);
-            telemetryConfig.shutdown();
-          });
-    }));
-
-  }
-
-  @Override
-  public void start() {
-    if (telemetry == null) {
-      logger.warn("Telemetry not initialized in constructor, creating new instance");
-      JsonObject config = new JsonObject()
-          .put("service.name", System.getenv().getOrDefault("OTEL_SERVICE_NAME", "app"))
-          .put("service.version", System.getenv().getOrDefault("OTEL_SERVICE_VERSION", "1.0.0"))
-          .put("otel.exporter.otlp.endpoint",
-              System.getenv().getOrDefault("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317"))
-          .put("otel.jfr.enabled",
-              Boolean.parseBoolean(System.getenv().getOrDefault("OTEL_JFR_ENABLED", "true")));
-
-      this.telemetry = new TelemetryConfig(config).initialize();
-    }
-
-    PgConnectOptions connectOptions = new PgConnectOptions()
-        .setPort(5432)
-        .setHost("app-db")
-        .setDatabase("example_vertx_crud")
-        .setUser("postgress")
-        .setPassword("password");
-
-    FlywayConfig.runMigrations(connectOptions);
-
-    JWTAuth jwtProvider = JwtConfig.createProvider(vertx);
-
-    PoolOptions poolOptions = new PoolOptions().setMaxSize(5);
-    Pool client = Pool.pool(vertx, connectOptions, poolOptions);
-
-    RedisAPI redisAPI = RedisConfig.createClient(vertx);
-    RedisService redisService = new RedisService(redisAPI, telemetry);
-
-    redisService.ping()
-        .onSuccess(response -> logger.info("✅ Redis connected successfully: {}", response))
-        .onFailure(err -> logger.error("❌ Failed to connect to Redis: {}", err.getMessage()));
-
-    DatabaseSeeder.runSeeder(client, true);
-
-    UserRepository userRepo = new UserRepository(client);
-    RoleRepository roleRepo = new RoleRepository(client);
-    RefreshTokenRepository refreshTokenRepository = new RefreshTokenRepository(client);
-    UserRoleRepository userRoleRepo = new UserRoleRepository(client);
-    CashierRepository cashierRepository = new CashierRepository(client);
-    CategoryRepository categoryRepository = new CategoryRepository(client);
-    MerchantRepository merchantRepository = new MerchantRepository(client);
-    ProductRepository productRepository = new ProductRepository(client);
-    OrderRepository orderRepository = new OrderRepository(client);
-    OrderItemRepository orderItemRepository = new OrderItemRepository(client);
-    TransactionRepository transactionRepository = new TransactionRepository(client);
-
-    TracingMetrics tracingMetrics = new TracingMetrics(telemetry, "example_vert.x");
-
-    UserService userService = new UserService(userRepo, roleRepo, userRoleRepo, redisService, tracingMetrics);
-    UserHandler userHandler = new UserHandler(userService);
-
-    AuthService authService = new AuthService(userRepo, refreshTokenRepository, redisService, jwtProvider,
-        tracingMetrics);
-    AuthHandler authHandler = new AuthHandler(authService, userService);
-
-    RoleService roleService = new RoleService(roleRepo, redisService, tracingMetrics);
-    RoleHandler roleHandler = new RoleHandler(roleService);
-
-    CategoryService categoryService = new CategoryService(categoryRepository, redisService, tracingMetrics);
-    CategoryHandler categoryHandler = new CategoryHandler(categoryService);
-
-    CashierService cashierService = new CashierService(cashierRepository, merchantRepository, userRepo, redisService,
-        tracingMetrics);
-    CashierHandler cashierHandler = new CashierHandler(cashierService);
-
-    MerchantService merchantService = new MerchantService(merchantRepository, redisService, tracingMetrics);
-    MerchantHandler merchantHandler = new MerchantHandler(merchantService);
-
-    ProductService productService = new ProductService(productRepository, redisService, tracingMetrics);
-    ProductHandler productHandler = new ProductHandler(productService);
-
-    OrderService orderService = new OrderService(orderRepository, merchantRepository, cashierRepository, redisService,
-        tracingMetrics);
-    OrderHandler orderHandler = new OrderHandler(orderService);
-
-    OrderItemService orderItemService = new OrderItemService(orderItemRepository, redisService, tracingMetrics);
-    OrderItemHandler orderItemHandler = new OrderItemHandler(orderItemService);
-
-    TransactionService transactionService = new TransactionService(transactionRepository, merchantRepository,
-        orderRepository, orderItemRepository, redisService, tracingMetrics);
-
-    TransactionHandler transactionHandler = new TransactionHandler(transactionService);
-
-    Router router = RouteRegistrar.register(vertx, jwtProvider, authHandler, userHandler, roleHandler, cashierHandler,
-        categoryHandler, merchantHandler, orderHandler, orderItemHandler, productHandler, transactionHandler);
-
-    setupGlobalErrorHandler(router);
-
-    vertx.createHttpServer()
-        .requestHandler(router)
-        .listen(8888)
-        .onSuccess(s -> logger.info("✅ Server running on http://localhost:8888"));
   }
 }
